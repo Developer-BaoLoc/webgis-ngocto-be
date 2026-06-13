@@ -1,0 +1,20 @@
+---
+description: Cập nhật tài liệu module khi thêm/sửa API hoặc chức năng
+globs:
+  - src/**/*.ts
+  - docs/modules/**
+alwaysApply: true
+---
+
+# Tài liệu dự án
+
+- Tài liệu tổng: `docs/PROJECT.md`
+- Mỗi module: **một file** trong `docs/modules/<tên-module>.md`
+
+Khi thay đổi endpoint, DTO, enum, hoặc behavior ảnh hưởng client:
+
+1. Cập nhật file module tương ứng (API, response example, debug, changelog)
+2. Module mới → tạo file mới trong `docs/modules/`
+3. Thay đổi kiến trúc/lộ trình lớn → cập nhật `docs/PROJECT.md`
+
+Không merge PR có API change mà chưa cập nhật tài liệu module.

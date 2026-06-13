@@ -1,5 +1,7 @@
 # Quy ước API REST
 
+> **Tài liệu module:** [docs/modules/](../modules/) — cập nhật khi thêm/sửa endpoint.
+
 Base URL: `/api`  
 Auth: `Authorization: Bearer <JWT>`
 

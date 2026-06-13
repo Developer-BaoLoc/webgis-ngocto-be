@@ -25,7 +25,9 @@
 
 Hệ thống GIS metadata-driven cho **phường Long Bình, Cần Thơ** — NestJS + PostgreSQL/PostGIS.
 
-**Tài liệu triển khai:** [docs/README.md](./docs/README.md)
+**Tài liệu dự án (đọc trước):** [docs/PROJECT.md](./docs/PROJECT.md) — tổng quan, khái niệm, luồng frontend.
+
+**API từng module:** [docs/modules/](./docs/modules/)
 
 Bắt đầu tại [Phase 0 — Foundation](./docs/phases/phase-0-foundation.md).
 
