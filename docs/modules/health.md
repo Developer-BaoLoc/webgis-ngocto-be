@@ -7,7 +7,7 @@
 
 ## Mục đích
 
-Health check API và endpoint root — frontend/CI kiểm tra service sống.
+Health check API và endpoint root — frontend/CI kiểm tra service sống + DB.
 
 ## API
 
@@ -15,23 +15,34 @@ Health check API và endpoint root — frontend/CI kiểm tra service sống.
 
 ```json
 {
-  "status": "ok",
-  "service": "GIS Long Bình API",
-  "ward": "Long Bình, Cái Răng, Cần Thơ",
-  "docs": "/api/layers"
+  "data": {
+    "status": "ok",
+    "service": "GIS Long Bình API",
+    "ward": "Long Bình, Cái Răng, Cần Thơ",
+    "docs": "/api/layers"
+  },
+  "meta": { "requestId": "...", "timestamp": "..." }
 }
 ```
 
 ### `GET /api/health`
 
 ```json
-{ "status": "ok" }
+{
+  "data": {
+    "status": "ok",
+    "database": "ok"
+  },
+  "meta": { ... }
+}
 ```
+
+`database: "error"` khi không kết nối được PostgreSQL.
 
 ## Frontend
 
-- Splash / about screen: `GET /api`
-- Health indicator / uptime monitor: `GET /api/health`
+- Splash / about: `GET /api` → `data.status`, `data.ward`
+- Health monitor: `GET /api/health` → `data.database`
 
 ## Debug
 
@@ -44,4 +55,4 @@ curl -s http://localhost:4000/api/health | jq
 
 | Ngày | Thay đổi |
 |------|----------|
-| 2026-06-13 | Khởi tạo |
+| 2026-06-13 | Phase 0 — bọc `{ data, meta }`, DB ping |

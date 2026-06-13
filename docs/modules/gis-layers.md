@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Trạng thái** | ✅ Implemented (prototype hardcoded) |
-| **Phase thay thế** | Phase 1 — metadata từ DB |
-| **Code** | `src/gis/gis-layers.controller.ts`, `src/gis/gis-layers.service.ts` |
+| **Trạng thái** | ⚠️ Deprecated — thay bằng [metadata.md](./metadata.md) |
+| **Phase thay thế** | Phase 1 — `src/metadata/layers.controller.ts` |
+| **Code cũ** | `src/gis/gis-layers.*` (đã gỡ khỏi module) |
 
 ## Mục đích
 

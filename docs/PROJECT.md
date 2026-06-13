@@ -157,22 +157,23 @@ Spec import chi tiết: [import-excel-long-binh.md](./appendix/import-excel-long
 
 ## 6. Trạng thái triển khai — frontend cần biết
 
-### Hiện tại (prototype)
+### Hiện tại
 
 | Có thể làm | Chưa có |
 |------------|---------|
-| Gọi `GET /api`, `GET /api/layers` | Login / JWT |
-| Lấy center map, danh sách 4 layer prototype | Dữ liệu GeoJSON thật (`features: []`) |
-| Dựng shell UI: sidebar, map trống | Dynamic form/table |
-| | Import wizard |
+| `GET /api`, `GET /api/health` (DB ping) | Dynamic form/table |
+| `GET /api/layers` (catalog prototype) | GeoJSON dữ liệu thật |
+| **Auth JWT** — `POST /api/auth/login`, `GET /api/auth/me` | Refresh token |
+| `GET /api/tenants/current`, `GET /api/organizations` | Import wizard |
+| Dựng shell UI + login flow | Phase 1 CRUD |
 
-API prototype trả **raw JSON** (chưa bọc `{ data, meta }`).
+Endpoint Phase 0 mới dùng `{ data, meta }`. Prototype `/api/layers` vẫn raw JSON (sẽ chuẩn hoá Phase 1).
 
 ### Theo phase — frontend phụ thuộc backend
 
 | Phase | Backend xong | Frontend làm được |
 |-------|--------------|---------------------|
-| **0** | Auth, DB connection | Login, token, guard route |
+| **0** | Auth ✅, DB connection ✅ | Login, token, guard route |
 | **1** | Layer schema, CRUD, import, GeoJSON bbox | Bảng/form động, load data thật |
 | **2** | — | Map editor, import UI, filter |
 | **3** | Workflow, child datasets | Duyệt, lịch sử, form phức tạp |
@@ -237,16 +238,22 @@ Mỗi module backend = **một file** trong [docs/modules/](./modules/). Đọc 
 
 | Module | File | Trạng thái | Frontend dùng để |
 |--------|------|------------|------------------|
-| Health | [health.md](./modules/health.md) | ✅ | Kiểm tra API sống |
-| GIS Catalog | [gis-layers.md](./modules/gis-layers.md) | ✅ | Khởi tạo map, sidebar layers |
-| Ranh giới HC | [administrative-boundary.md](./modules/administrative-boundary.md) | 🔶 prototype | Layer polygon (sẽ thay Phase 1) |
+| Health | [health.md](./modules/health.md) | ✅ | Root + health (+ DB ping) |
+| Auth | [auth.md](./modules/auth.md) | ✅ | Login JWT, /me |
+| Tenants | [tenants.md](./modules/tenants.md) | ✅ | Tenant context |
+| Organizations | [organizations.md](./modules/organizations.md) | ✅ | Danh sách org |
+| GIS Catalog | [metadata.md](./modules/metadata.md) | ✅ Phase 1 | Khởi tạo map, sidebar layers (DB) |
+| Records | [records.md](./modules/records.md) | ✅ Phase 1 | CRUD + GeoJSON dynamic |
+| Import | [import.md](./modules/import.md) | ✅ Phase 1 | Upload Excel |
+| Dictionaries | [dictionaries.md](./modules/dictionaries.md) | ✅ Phase 1 | Dropdown / category |
+| Ranh giới HC | [administrative-boundary.md](./modules/administrative-boundary.md) | 🔶 prototype | Deprecated — dùng `administrative_zone` |
 | Hợp tác xã | [cooperatives.md](./modules/cooperatives.md) | 🔶 prototype | → `economic_collective` |
 | Tổ hợp tác | [cooperative-groups.md](./modules/cooperative-groups.md) | 🔶 prototype | → `economic_collective` |
 | Thủy lợi | [irrigation.md](./modules/irrigation.md) | 🔶 prototype | → `pump_station` |
 
-🔶 = endpoint có, GeoJSON rỗng. Phase 1 thay bằng API dynamic.
+🔶 = endpoint prototype cũ, GeoJSON rỗng. Dùng `/api/layers/:id/geojson` (Phase 1) thay cho prototype routes.
 
-**Module sắp có:** `auth`, `metadata`, `records`, `import` — mỗi module sẽ có file riêng khi backend implement.
+**Catalog cũ:** [gis-layers.md](./modules/gis-layers.md) (deprecated — xem [metadata.md](./modules/metadata.md)).
 
 ---
 
