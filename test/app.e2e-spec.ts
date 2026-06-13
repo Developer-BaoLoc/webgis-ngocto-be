@@ -4,7 +4,7 @@ import * as request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
-describe('AppController (e2e)', () => {
+describe('App (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -13,13 +13,31 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api');
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('/api (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/api')
       .expect(200)
-      .expect('Hello World!');
+      .expect((res) => {
+        expect(res.body.status).toBe('ok');
+        expect(res.body.service).toBe('GIS Long Bình API');
+      });
+  });
+
+  it('/api/layers (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/api/layers')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.project.name).toBe('GIS Long Bình');
+        expect(res.body.layers).toHaveLength(4);
+      });
   });
 });

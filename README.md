@@ -23,7 +23,11 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Hệ thống GIS metadata-driven cho **phường Long Bình, Cần Thơ** — NestJS + PostgreSQL/PostGIS.
+
+**Tài liệu triển khai:** [docs/README.md](./docs/README.md)
+
+Bắt đầu tại [Phase 0 — Foundation](./docs/phases/phase-0-foundation.md).
 
 ## Project setup
 
