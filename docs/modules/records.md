@@ -32,3 +32,5 @@ GET /api/layers/:layerId/geojson?bbox=minLng,minLat,maxLng,maxLat&includeUnlocat
 ```
 
 Geometry optional — import Excel để null, vẽ bản đồ ở Phase 2.
+
+> **Frontend:** [frontend-crud-guide.md](./frontend-crud-guide.md)

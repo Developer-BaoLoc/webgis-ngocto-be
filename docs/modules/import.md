@@ -34,5 +34,7 @@ Chi tiết mapping: [import-excel-long-binh.md](../appendix/import-excel-long-bi
 
 ## Yêu cầu
 
-- Redis chạy (`docker compose up redis`)
-- Seed `009_layer_seed.sql` (`yarn db:seed`)
+- Redis chạy (`docker compose up redis`) — chỉ khi Execute import
+- Layer + schema phải tạo qua CRUD trước khi import
+
+> **Lưu ý:** Import templates seed đã gỡ — tạo layer/field qua admin CRUD trước. UI import làm sau.

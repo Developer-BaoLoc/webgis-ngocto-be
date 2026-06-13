@@ -236,12 +236,15 @@ Prototype hiện tại: raw JSON trực tiếp.
 
 Mỗi module backend = **một file** trong [docs/modules/](./modules/). Đọc file này để biết endpoint, response mẫu, cách debug.
 
+**Bắt đầu tích hợp CRUD admin:** [frontend-crud-guide.md](./modules/frontend-crud-guide.md)
+
 | Module | File | Trạng thái | Frontend dùng để |
 |--------|------|------------|------------------|
 | Health | [health.md](./modules/health.md) | ✅ | Root + health (+ DB ping) |
 | Auth | [auth.md](./modules/auth.md) | ✅ | Login JWT, /me |
 | Tenants | [tenants.md](./modules/tenants.md) | ✅ | Tenant context |
 | Organizations | [organizations.md](./modules/organizations.md) | ✅ | Danh sách org |
+| **Frontend CRUD** | [frontend-crud-guide.md](./modules/frontend-crud-guide.md) | ✅ | Hướng dẫn tích hợp layer/field/records |
 | GIS Catalog | [metadata.md](./modules/metadata.md) | ✅ Phase 1 | Khởi tạo map, sidebar layers (DB) |
 | Records | [records.md](./modules/records.md) | ✅ Phase 1 | CRUD + GeoJSON dynamic |
 | Import | [import.md](./modules/import.md) | ✅ Phase 1 | Upload Excel |

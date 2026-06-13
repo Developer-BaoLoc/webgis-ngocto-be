@@ -68,14 +68,6 @@ Metadata-driven layer catalog, CRUD layer/field, schema draft → publish.
 
 Sửa schema đã publish: `POST .../schema/drafts` → chỉnh fields → publish (version mới).
 
-## Layer codes seed Long Bình
+> **Frontend:** xem [frontend-crud-guide.md](./frontend-crud-guide.md) — hướng dẫn tích hợp đầy đủ.
 
-`economic_collective`, `pump_station`, `production_zone`, `ocop_subject`, `ocop_product`, `administrative_zone`
-
-## Xóa dữ liệu import sai
-
-```bash
-yarn db:clear-records
-```
-
-Giữ nguyên layers, schema, templates.
+**Layers không seed sẵn** — tạo qua `POST /api/layers`. Xóa layers seed cũ: `yarn db:clear-layers`.

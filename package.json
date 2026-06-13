@@ -22,6 +22,7 @@
     "db:migrate": "./migrations/run.sh",
     "db:seed": "./migrations/seed.sh",
     "db:clear-records": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-imported-data.sql",
+    "db:clear-layers": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-seeded-layers.sql",
     "db:reset": "docker compose down -v && docker compose up -d postgres redis minio && sleep 8 && ./migrations/run.sh"
   },
   "dependencies": {
