@@ -80,6 +80,30 @@ export function matchCategoryCode(
   return match?.code ?? null;
 }
 
+/** Các label chưa khớp item nào trong danh mục (so khớp không phân biệt dấu). */
+export function findMissingCategoryLabels(
+  rawLabels: string[],
+  items: DictionaryItemEntity[],
+): string[] {
+  const missing: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of rawLabels) {
+    const label = String(raw).trim();
+    if (!label) continue;
+
+    const key = normalizeText(label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (!matchCategoryCode(label, items)) {
+      missing.push(label);
+    }
+  }
+
+  return missing;
+}
+
 export function normalizeLoaiBom(raw: unknown): string | null {
   if (!raw) return null;
   const text = normalizeText(String(raw));

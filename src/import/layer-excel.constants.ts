@@ -10,6 +10,7 @@ export const LAYER_EXCEL_SKIP_FIELD_TYPES = new Set(['image', 'file']);
 /** Required in schema but optional when importing from Excel. */
 export const LAYER_EXCEL_IMPORT_OPTIONAL_TYPES = new Set([
   'lat_lng',
+  'area_polygon',
   'image',
   'file',
 ]);

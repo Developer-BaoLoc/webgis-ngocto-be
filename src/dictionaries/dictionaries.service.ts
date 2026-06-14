@@ -11,6 +11,7 @@ import {
   DictionaryItemEntity,
 } from '../database/entities/dictionary.entity';
 import { slugifyLayerCode } from '../metadata/utils/layer-code.util';
+import { findMissingCategoryLabels } from '../import/import-normalizer';
 import {
   CreateDictionaryDto,
   CreateDictionaryItemDto,
@@ -314,6 +315,30 @@ export class DictionariesService {
     return items.map((item) => this.toValueSummary(item));
   }
 
+  /** Import Excel: tự thêm giá trị danh mục chưa có (label → code slug). */
+  async ensureItemsByLabels(
+    tenantId: string,
+    dictionaryCode: string,
+    labels: string[],
+  ): Promise<Array<{ code: string; label: string }>> {
+    const dictionary = await this.findDictionaryOrThrow(tenantId, dictionaryCode);
+    this.assertDictionaryWritable(dictionary, tenantId);
+
+    const existing = await this.itemsRepository.find({
+      where: { dictionaryId: dictionary.id, isActive: true },
+    });
+
+    const toCreate = findMissingCategoryLabels(labels, existing);
+    if (toCreate.length === 0) return [];
+
+    const created = await this.createValuesInternal(
+      dictionary,
+      toCreate.map((label) => ({ label })),
+    );
+
+    return created.map((item) => ({ code: item.code, label: item.label }));
+  }
+
   private toValueSummary(item: DictionaryItemEntity): DictionaryValueSummary {
     return {
       id: item.id,
@@ -345,13 +370,20 @@ export class DictionariesService {
     const created: Array<ReturnType<typeof this.toValueSummary>> = [];
 
     for (const value of values) {
-      const code = value.code?.trim() || slugifyLayerCode(value.label);
-
-      const dup = await this.itemsRepository.findOne({
-        where: { dictionaryId: dictionary.id, code },
-      });
-      if (dup) {
-        throw new ConflictException(`Mã giá trị đã tồn tại trong danh mục: ${code}`);
+      let code: string;
+      const preferred = value.code?.trim();
+      if (preferred) {
+        const dup = await this.itemsRepository.findOne({
+          where: { dictionaryId: dictionary.id, code: preferred },
+        });
+        if (dup) {
+          throw new ConflictException(
+            `Mã giá trị đã tồn tại trong danh mục: ${preferred}`,
+          );
+        }
+        code = preferred;
+      } else {
+        code = await this.resolveUniqueItemCode(dictionary.id, value.label);
       }
 
       nextOrder += 1;
@@ -368,6 +400,27 @@ export class DictionariesService {
     }
 
     return created;
+  }
+
+  private async resolveUniqueItemCode(
+    dictionaryId: string,
+    label: string,
+    preferredCode?: string,
+  ): Promise<string> {
+    const base = preferredCode || slugifyLayerCode(label) || 'gia_tri';
+    let code = base;
+    let suffix = 2;
+
+    while (
+      await this.itemsRepository.findOne({
+        where: { dictionaryId, code },
+      })
+    ) {
+      code = `${base}_${suffix}`;
+      suffix += 1;
+    }
+
+    return code;
   }
 
   private assertDictionaryWritable(

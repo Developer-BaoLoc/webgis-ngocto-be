@@ -31,6 +31,7 @@ export const FIELD_TYPES = [
   'multi_category',
   'reference',
   'lat_lng',
+  'area_polygon',
   'image',
   'file',
 ] as const;
@@ -168,6 +169,12 @@ export const FIELD_TYPE_CATALOG: Array<{
     label: 'Toạ độ',
     uiComponent: 'lat_lng',
     valueShape: { lat: 'number', lng: 'number' },
+  },
+  {
+    type: 'area_polygon',
+    label: 'Vùng',
+    uiComponent: 'area_polygon',
+    valueShape: { coordinates: 'array<{ lat, lng }>' },
   },
   {
     type: 'image',

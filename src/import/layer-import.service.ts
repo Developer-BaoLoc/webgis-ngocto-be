@@ -18,10 +18,19 @@ import { parseLayerImportWorkbook } from './layer-excel.parser';
 import { LAYER_EXCEL_STT_CODE } from './layer-excel.constants';
 import { IMPORT_ERROR_CODES, LayerImportError } from './layer-import.errors';
 import {
+  augmentDictionaryItemsWithVirtualLabels,
+  collectDictionaryLabelsFromImportRows,
   collectLayerImportRowErrors,
   normalizeLayerImportProperties,
   resolveDedupFieldCodes,
 } from './layer-import-normalizer';
+import { findMissingCategoryLabels } from './import-normalizer';
+import { generateUniqueCodeInSet } from '../metadata/utils/layer-code.util';
+
+type DictionaryItemsCreated = {
+  dictionaryCode: string;
+  labels: string[];
+};
 
 type ValidatedImportRow = {
   rowNumber: number;
@@ -140,11 +149,10 @@ export class LayerImportService {
     importId: string,
     previewLimit = 20,
   ) {
-    const { validatedRows, summary, meta } = await this.validateImportFile(
-      tenantId,
-      layerId,
-      importId,
-    );
+    const { validatedRows, summary, meta, dictionaryItemsCreated } =
+      await this.validateImportFile(tenantId, layerId, importId, {
+        persistDictionaryItems: false,
+      });
 
     const previewRows = validatedRows.slice(0, previewLimit).map((row) => ({
       rowNumber: row.rowNumber,
@@ -159,6 +167,7 @@ export class LayerImportService {
       layerId,
       ...summary,
       errorCount: summary.errors.length,
+      dictionaryItemsCreated,
       columns: meta.columns
         .filter((col) => col.fieldCode !== LAYER_EXCEL_STT_CODE)
         .map((col) => ({
@@ -169,7 +178,9 @@ export class LayerImportService {
       previewRows,
       previewCount: previewRows.length,
       message: summary.canImport
-        ? 'File hợp lệ, có thể import.'
+        ? dictionaryItemsCreated.length > 0
+          ? `Sẽ tự thêm ${dictionaryItemsCreated.reduce((n, item) => n + item.labels.length, 0)} giá trị mới vào danh mục. File hợp lệ, có thể import.`
+          : 'File hợp lệ, có thể import.'
         : 'File có lỗi — sửa các dòng bên dưới rồi upload lại.',
     };
   }
@@ -180,8 +191,10 @@ export class LayerImportService {
     userId: string,
     importId: string,
   ) {
-    const { validatedRows, summary, schema, dictionaryItems, dedupKeys } =
-      await this.validateImportFile(tenantId, layerId, importId);
+    const { validatedRows, summary, schema, dedupKeys, dictionaryItemsCreated } =
+      await this.validateImportFile(tenantId, layerId, importId, {
+        persistDictionaryItems: true,
+      });
 
     if (!summary.canImport) {
       throw new BadRequestException({
@@ -242,17 +255,25 @@ export class LayerImportService {
       errorRows: 0,
       errors: [] as LayerImportError[],
       duplicateRows,
+      dictionaryItemsCreated,
       message:
         duplicates > 0
-          ? `Import xong: ${created} bản ghi mới, ${duplicates} dòng trùng đã bỏ qua.`
-          : `Import thành công ${created} bản ghi.`,
+          ? `Import xong: ${created} bản ghi mới, ${duplicates} dòng trùng đã bỏ qua.${this.formatDictionaryCreatedNote(dictionaryItemsCreated)}`
+          : `Import thành công ${created} bản ghi.${this.formatDictionaryCreatedNote(dictionaryItemsCreated)}`,
     };
+  }
+
+  private formatDictionaryCreatedNote(items: DictionaryItemsCreated[]): string {
+    const count = items.reduce((n, item) => n + item.labels.length, 0);
+    if (count === 0) return '';
+    return ` Đã thêm ${count} giá trị mới vào danh mục dùng chung.`;
   }
 
   private async validateImportFile(
     tenantId: string,
     layerId: string,
     importId: string,
+    options: { persistDictionaryItems?: boolean } = {},
   ) {
     const schema = await this.metadataService.getPublishedSchema(
       tenantId,
@@ -275,6 +296,14 @@ export class LayerImportService {
       tenantId,
       schema.fields,
     );
+    const { dictionaryItems: resolvedItems, dictionaryItemsCreated } =
+      await this.resolveDictionaryItemsForImport(
+        tenantId,
+        rows,
+        schema.fields,
+        dictionaryItems,
+        options.persistDictionaryItems ?? false,
+      );
     const dedupKeys = resolveDedupFieldCodes(schema.fields);
 
     const validatedRows: ValidatedImportRow[] = [];
@@ -284,14 +313,14 @@ export class LayerImportService {
       const normalized = await normalizeLayerImportProperties(
         schema.fields,
         row.properties,
-        dictionaryItems,
+        resolvedItems,
       );
       const errors = collectLayerImportRowErrors({
         rowNumber: row.rowNumber,
         rawProperties: row.raw,
         normalizedProperties: normalized,
         fields: schema.fields,
-        dictionaryItemsByCode: dictionaryItems,
+        dictionaryItemsByCode: resolvedItems,
       });
 
       if (errors.length > 0) {
@@ -323,10 +352,71 @@ export class LayerImportService {
       validatedRows,
       summary,
       schema,
-      dictionaryItems,
+      dictionaryItems: resolvedItems,
+      dictionaryItemsCreated,
       dedupKeys,
       meta,
     };
+  }
+
+  private async resolveDictionaryItemsForImport(
+    tenantId: string,
+    rows: Array<{ properties: Record<string, unknown>; raw: Record<string, unknown> }>,
+    fields: Array<{
+      fieldType: string;
+      dataSchema: Record<string, unknown>;
+      code: string;
+    }>,
+    dictionaryItems: Record<string, DictionaryItemEntity[]>,
+    persist: boolean,
+  ): Promise<{
+    dictionaryItems: Record<string, DictionaryItemEntity[]>;
+    dictionaryItemsCreated: DictionaryItemsCreated[];
+  }> {
+    const labelsByDict = collectDictionaryLabelsFromImportRows(rows, fields);
+    const dictionaryItemsCreated: DictionaryItemsCreated[] = [];
+    let resolvedItems = { ...dictionaryItems };
+
+    for (const [dictCode, labels] of Object.entries(labelsByDict)) {
+      const missing = findMissingCategoryLabels(
+        labels,
+        resolvedItems[dictCode] ?? [],
+      );
+      if (missing.length === 0) continue;
+
+      dictionaryItemsCreated.push({ dictionaryCode: dictCode, labels: missing });
+
+      if (persist) {
+        const created = await this.dictionariesService.ensureItemsByLabels(
+          tenantId,
+          dictCode,
+          missing,
+        );
+        resolvedItems[dictCode] = [
+          ...(resolvedItems[dictCode] ?? []),
+          ...created.map(
+            (item) =>
+              ({
+                code: item.code,
+                label: item.label,
+              }) as DictionaryItemEntity,
+          ),
+        ];
+      } else {
+        const existingCodes = new Set(
+          (resolvedItems[dictCode] ?? []).map((item) => item.code),
+        );
+        const virtualItems = missing.map((label) => ({
+          label,
+          code: generateUniqueCodeInSet(label, existingCodes),
+        }));
+        resolvedItems = augmentDictionaryItemsWithVirtualLabels(resolvedItems, {
+          [dictCode]: virtualItems,
+        });
+      }
+    }
+
+    return { dictionaryItems: resolvedItems, dictionaryItemsCreated };
   }
 
   private resolveFilePath(importId: string) {

@@ -11,6 +11,10 @@ function normalizeCell(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+function stripAccents(value: string): string {
+  return value.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+
 function isRowEmpty(values: unknown[]): boolean {
   return values.every(
     (value) =>
@@ -62,50 +66,44 @@ function rowMatchesFieldLabels(
   return matches >= 3 && matches >= Math.max(checked, 1) * 0.6;
 }
 
-function resolveFieldCodeRowIndex(
-  matrix: unknown[][],
-  meta: LayerExcelMeta,
-): number {
-  const expectedCodes = meta.columns.map((column) => column.fieldCode);
-  const preferredIndex = meta.fieldCodeRow - 1;
-
-  if (rowMatchesFieldCodes(matrix[preferredIndex] ?? [], expectedCodes)) {
-    return preferredIndex;
-  }
-
-  const maxScan = Math.min(matrix.length, 20);
-  for (let i = 0; i < maxScan; i += 1) {
-    if (rowMatchesFieldCodes(matrix[i] ?? [], expectedCodes)) {
-      return i;
-    }
-  }
-
-  return preferredIndex;
+function isTitleRow(row: unknown[]): boolean {
+  const first = normalizeCell(row[0]);
+  if (!first) return false;
+  const normalized = stripAccents(first.toLowerCase());
+  return (
+    normalized.startsWith('mau import') || normalized.includes('mau import')
+  );
 }
 
-function resolveDataStartIndex(
+/** Các dòng tiêu đề / header — mọi dòng khác (có dữ liệu) đều được import. */
+export function resolveHeaderRowIndices(
   matrix: unknown[][],
   meta: LayerExcelMeta,
-  fieldCodeRowIndex: number,
-): number {
+): Set<number> {
+  const indices = new Set<number>();
   const expectedCodes = meta.columns.map((column) => column.fieldCode);
+  const maxScan = Math.min(matrix.length, 25);
 
-  for (let i = fieldCodeRowIndex + 1; i < matrix.length; i += 1) {
+  for (let i = 0; i < maxScan; i += 1) {
     const row = matrix[i] ?? [];
     if (isRowEmpty(row)) continue;
 
-    if (rowMatchesFieldCodes(row, expectedCodes)) continue;
-    if (rowMatchesFieldLabels(row, meta)) continue;
+    if (rowMatchesFieldCodes(row, expectedCodes)) {
+      indices.add(i);
+      continue;
+    }
 
-    return i;
+    if (rowMatchesFieldLabels(row, meta)) {
+      indices.add(i);
+      continue;
+    }
+
+    if (isTitleRow(row)) {
+      indices.add(i);
+    }
   }
 
-  const preferredIndex = meta.dataStartRow - 1;
-  if (preferredIndex > fieldCodeRowIndex) {
-    return preferredIndex;
-  }
-
-  return fieldCodeRowIndex + 1;
+  return indices;
 }
 
 function mapRowByColumns(
@@ -126,6 +124,42 @@ function mapRowByColumns(
   });
 
   return { raw, properties };
+}
+
+export function parseLayerImportMatrix(
+  matrix: unknown[][],
+  meta: LayerExcelMeta,
+  limit?: number,
+): LayerExcelParsedRow[] {
+  const importColumns = meta.columns.filter(
+    (col) => col.fieldCode !== LAYER_EXCEL_STT_CODE,
+  );
+  if (importColumns.length === 0) {
+    throw new Error('File mẫu không có cột dữ liệu');
+  }
+
+  const headerRows = resolveHeaderRowIndices(matrix, meta);
+  const rows: LayerExcelParsedRow[] = [];
+
+  for (let i = 0; i < matrix.length; i += 1) {
+    if (headerRows.has(i)) continue;
+
+    const rowArray = matrix[i] ?? [];
+    if (isRowEmpty(rowArray)) continue;
+
+    const { raw, properties } = mapRowByColumns(rowArray, meta);
+    if (Object.keys(properties).length === 0) continue;
+
+    rows.push({
+      rowNumber: i + 1,
+      properties,
+      raw,
+    });
+
+    if (limit && rows.length >= limit) break;
+  }
+
+  return rows;
 }
 
 export function readLayerExcelMeta(workbook: XLSX.WorkBook): LayerExcelMeta {
@@ -170,37 +204,7 @@ export function parseLayerImportWorkbook(
     raw: false,
   });
 
-  const importColumns = meta.columns.filter(
-    (col) => col.fieldCode !== LAYER_EXCEL_STT_CODE,
-  );
-  if (importColumns.length === 0) {
-    throw new Error('File mẫu không có cột dữ liệu');
-  }
-
-  const fieldCodeRowIndex = resolveFieldCodeRowIndex(matrix, meta);
-  const dataStartIndex = resolveDataStartIndex(
-    matrix,
-    meta,
-    fieldCodeRowIndex,
-  );
-
-  const rows: LayerExcelParsedRow[] = [];
-
-  for (let i = dataStartIndex; i < matrix.length; i += 1) {
-    const rowArray = matrix[i] ?? [];
-    if (isRowEmpty(rowArray)) continue;
-
-    const { raw, properties } = mapRowByColumns(rowArray, meta);
-    if (Object.keys(properties).length === 0) continue;
-
-    rows.push({
-      rowNumber: i + 1,
-      properties,
-      raw,
-    });
-
-    if (limit && rows.length >= limit) break;
-  }
+  const rows = parseLayerImportMatrix(matrix, meta, limit);
 
   return { meta, rows };
 }

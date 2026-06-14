@@ -36,6 +36,7 @@ interface FieldTypeHandler {
 | `multi_category` | Danh mục nhiều giá trị | string[] | — |
 | `reference` | Liên kết feature khác | uuid | — |
 | `lat_lng` | Toạ độ | `{ lat, lng }` | — |
+| `area_polygon` | Vùng (polygon) | `{ coordinates: [{ lat, lng }, ...] }` (≥3 điểm) | — |
 | `image` | Hình ảnh (nhiều) | `AttachmentRef[]` | — |
 | `file` | Tệp tin (nhiều) | `AttachmentRef[]` | — |
 
@@ -154,7 +155,14 @@ Danh mục **dùng chung** — bắt buộc chọn `dataSchema.dictionary`:
 
 Tạo danh mục: `POST /api/dictionaries`, thêm mục: `POST /api/dictionaries/:code/items`.
 
-Import: fuzzy match "Dịch vụ bơm tưới" → "bom_tuoi" dictionary item.
+Import: fuzzy match "Dịch vụ bơm tưới" → "bom_tuoi" dictionary item. Label chưa có → **tự thêm** khi import Excel (xem [import.md](./import.md)).
+
+### multi_category (Chọn nhiều)
+
+Giống `category` nhưng lưu mảng code: `["bom_dien", "bom_dau"]`.
+
+- **Hiển thị:** mỗi label trên một dòng
+- **Import Excel:** mỗi giá trị một dòng trong ô (Alt+Enter); vẫn chấp nhận dấu phẩy trên một dòng (tương thích file cũ)
 
 ### lat_lng (Toạ độ)
 
@@ -182,6 +190,40 @@ Value trong `properties`:
 - `lng`: -180 … 180 (kinh độ)
 
 **Lớp điểm (`point`):** BE tự đồng bộ `{ lat, lng }` → PostGIS `geometry` (Point) khi tạo/sửa bản ghi. GeoJSON endpoint cũng fallback từ `properties` nếu geometry chưa lưu.
+
+### area_polygon (Vùng)
+
+Dùng cho **lớp vùng (`polygon`)** — lưu danh sách đỉnh polygon:
+
+```json
+{
+  "fieldType": "area_polygon",
+  "dataSchema": {
+    "required": false
+  },
+  "uiSchema": {
+    "component": "area_polygon"
+  }
+}
+```
+
+Value trong `properties`:
+
+```json
+{
+  "ranh_vung": {
+    "coordinates": [
+      { "lat": 10.0125, "lng": 105.785 },
+      { "lat": 10.0130, "lng": 105.790 },
+      { "lat": 10.0110, "lng": 105.792 }
+    ]
+  }
+}
+```
+
+- Tối thiểu **3 điểm** `{ lat, lng }`
+- BE tự đóng vòng polygon và đồng bộ → PostGIS `geometry` (Polygon)
+- Import Excel: `"10.01,105.78; 10.02,105.79; 10.03,105.80"` hoặc JSON `coordinates`
 
 ### image (Hình ảnh — nhiều ảnh)
 

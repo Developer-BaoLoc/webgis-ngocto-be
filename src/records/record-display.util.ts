@@ -106,6 +106,13 @@ export function formatFieldValue(
     }
   }
 
+  if (field.fieldType === 'area_polygon' && typeof value === 'object' && value !== null) {
+    const coordinates = (value as { coordinates?: unknown }).coordinates;
+    if (Array.isArray(coordinates)) {
+      return `${coordinates.length} điểm`;
+    }
+  }
+
   if (field.fieldType === 'boolean') {
     return value === true || value === 'true' ? 'Có' : 'Không';
   }
@@ -118,7 +125,7 @@ export function formatFieldValue(
   if (field.fieldType === 'multi_category' && Array.isArray(value)) {
     return value
       .map((item) => dictionaryLabels[String(item)] ?? String(item))
-      .join(', ');
+      .join('\n');
   }
 
   if (field.fieldType === 'money') {

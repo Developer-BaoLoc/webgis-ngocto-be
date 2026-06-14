@@ -21,6 +21,10 @@ import {
 } from './utils/import-validation.util';
 import { resolvePointFromLatLngFields } from './utils/lat-lng-geometry.util';
 import type { PointGeoJson } from './utils/lat-lng-geometry.util';
+import {
+  isPolygonGeometryKind,
+  resolvePolygonFromAreaFields,
+} from './utils/area-polygon-geometry.util';
 import { RecordDisplayService } from './record-display.service';
 import {
   parseRecordListQuery,
@@ -47,13 +51,13 @@ export class RecordsService implements OnModuleInit {
   async onModuleInit() {
     const tenantId = this.configService.get('tenant.defaultId', { infer: true });
     try {
-      const synced = await this.backfillLatLngGeometries(tenantId);
+      const synced = await this.backfillGeocodedGeometries(tenantId);
       if (synced > 0) {
-        this.logger.log(`Đã đồng bộ geometry cho ${synced} bản ghi lat/lng`);
+        this.logger.log(`Đã đồng bộ geometry cho ${synced} bản ghi từ trường toạ độ/vùng`);
       }
     } catch (error) {
       this.logger.warn(
-        `Backfill lat/lng geometry: ${error instanceof Error ? error.message : error}`,
+        `Backfill geocoded geometry: ${error instanceof Error ? error.message : error}`,
       );
     }
   }
@@ -131,6 +135,14 @@ export class RecordsService implements OnModuleInit {
       geometry =
         resolvePointFromLatLngFields(schemaFields, feature.properties) ?? null;
     }
+    if (
+      !geometry &&
+      isPolygonGeometryKind(layer.geometryKind) &&
+      schemaFields.some((field) => field.fieldType === 'area_polygon')
+    ) {
+      geometry =
+        resolvePolygonFromAreaFields(schemaFields, feature.properties) ?? null;
+    }
 
     const display = await this.recordDisplayService.buildDisplay(
       tenantId,
@@ -190,6 +202,18 @@ export class RecordsService implements OnModuleInit {
       }
     }
 
+    if (!geometry && isPolygonGeometryKind(layer.geometryKind)) {
+      const polygonFromField = resolvePolygonFromAreaFields(
+        schema.fields,
+        normalized,
+      );
+      if (polygonFromField) {
+        geometry = polygonFromField;
+        locationStatus = 'located';
+        geometrySource = 'geocoded';
+      }
+    }
+
     const feature = this.featuresRepository.create({
       tenantId,
       layerId,
@@ -205,7 +229,7 @@ export class RecordsService implements OnModuleInit {
     const saved = await this.featuresRepository.save(feature);
 
     if (geometry) {
-      await this.syncPointGeometry(saved.id, geometry as PointGeoJson);
+      await this.persistRecordGeometry(saved.id, geometry, layer.geometryKind);
     }
 
     return this.getRecord(tenantId, layerId, saved.id);
@@ -257,6 +281,18 @@ export class RecordsService implements OnModuleInit {
       }
     }
 
+    if (!geometry && isPolygonGeometryKind(layer.geometryKind)) {
+      const polygonFromField = resolvePolygonFromAreaFields(
+        schema.fields,
+        normalized,
+      );
+      if (polygonFromField) {
+        geometry = polygonFromField;
+        locationStatus = 'located';
+        geometrySource = 'geocoded';
+      }
+    }
+
     const feature = this.featuresRepository.create({
       tenantId,
       layerId,
@@ -272,7 +308,7 @@ export class RecordsService implements OnModuleInit {
     const saved = await this.featuresRepository.save(feature);
 
     if (geometry) {
-      await this.syncPointGeometry(saved.id, geometry as PointGeoJson);
+      await this.persistRecordGeometry(saved.id, geometry, layer.geometryKind);
     }
 
     return this.getRecord(tenantId, layerId, saved.id);
@@ -324,17 +360,19 @@ export class RecordsService implements OnModuleInit {
       }
     } else if (
       body.properties &&
-      layer.geometryKind === 'point' &&
-      schema.fields.some(
-        (field) => field.fieldType === 'lat_lng' && field.code in body.properties!,
-      )
+      this.hasGeocodedFieldUpdate(schema.fields, body.properties)
     ) {
-      const pointFromField = resolvePointFromLatLngFields(
+      const geometryFromField = this.resolveGeometryFromProperties(
+        layer,
         schema.fields,
         feature.properties,
       );
-      if (pointFromField) {
-        await this.syncPointGeometry(feature.id, pointFromField);
+      if (geometryFromField) {
+        await this.persistRecordGeometry(
+          feature.id,
+          geometryFromField,
+          layer.geometryKind,
+        );
         feature.locationStatus = 'located';
         feature.geometrySource = 'geocoded';
       } else {
@@ -424,14 +462,16 @@ export class RecordsService implements OnModuleInit {
       schemaFields = [];
     }
 
-    const useLatLngFallback =
-      layer.geometryKind === 'point' &&
-      schemaFields.some((field) => field.fieldType === 'lat_lng');
+    const useGeocodedFallback =
+      (layer.geometryKind === 'point' &&
+        schemaFields.some((field) => field.fieldType === 'lat_lng')) ||
+      (isPolygonGeometryKind(layer.geometryKind) &&
+        schemaFields.some((field) => field.fieldType === 'area_polygon'));
 
     const params: unknown[] = [tenantId, layerId];
     let spatialFilter = '';
 
-    if (options.bbox && !useLatLngFallback) {
+    if (options.bbox && !useGeocodedFallback) {
       const parts = options.bbox.split(',').map(Number);
       if (parts.length !== 4 || parts.some(Number.isNaN)) {
         throw new BadRequestException('bbox phải là minLng,minLat,maxLng,maxLat');
@@ -441,7 +481,7 @@ export class RecordsService implements OnModuleInit {
         ${options.includeUnlocated ? 'OR geometry IS NULL' : ''}
       )`;
       params.push(parts[0], parts[1], parts[2], parts[3]);
-    } else if (!options.includeUnlocated && !useLatLngFallback) {
+    } else if (!options.includeUnlocated && !useGeocodedFallback) {
       spatialFilter = 'AND geometry IS NOT NULL';
     }
 
@@ -470,11 +510,15 @@ export class RecordsService implements OnModuleInit {
         location_status: string;
       }) => {
         let geometry = row.geometry;
-        if (!geometry && useLatLngFallback) {
+        if (!geometry && useGeocodedFallback) {
           geometry =
-            resolvePointFromLatLngFields(schemaFields, row.properties) ?? null;
+            this.resolveGeometryFromProperties(
+              layer,
+              schemaFields,
+              row.properties,
+            ) ?? null;
           if (geometry) {
-            void this.syncPointGeometry(row.id, geometry as PointGeoJson);
+            void this.persistRecordGeometry(row.id, geometry, layer.geometryKind);
           }
         }
 
@@ -543,18 +587,23 @@ export class RecordsService implements OnModuleInit {
     };
   }
 
-  async backfillLatLngGeometries(tenantId: string): Promise<number> {
+  async backfillGeocodedGeometries(tenantId: string): Promise<number> {
     const rows = await this.dataSource.query<
-      Array<{ id: string; layer_id: string; properties: Record<string, unknown> }>
+      Array<{
+        id: string;
+        layer_id: string;
+        geometry_kind: string;
+        properties: Record<string, unknown>;
+      }>
     >(
       `
-      SELECT f.id, f.layer_id, f.properties
+      SELECT f.id, f.layer_id, l.geometry_kind, f.properties
       FROM features f
       INNER JOIN layers l ON l.id = f.layer_id AND l.tenant_id = f.tenant_id
       WHERE f.tenant_id = $1
         AND f.deleted_at IS NULL
         AND f.geometry IS NULL
-        AND l.geometry_kind = 'point'
+        AND l.geometry_kind IN ('point', 'polygon', 'multipolygon')
       `,
       [tenantId],
     );
@@ -566,9 +615,17 @@ export class RecordsService implements OnModuleInit {
           tenantId,
           row.layer_id,
         );
-        const point = resolvePointFromLatLngFields(schema.fields, row.properties);
-        if (point) {
-          await this.syncPointGeometry(row.id, point);
+        const layer = await this.metadataService.getLayerById(
+          tenantId,
+          row.layer_id,
+        );
+        const geometry = this.resolveGeometryFromProperties(
+          layer,
+          schema.fields,
+          row.properties,
+        );
+        if (geometry) {
+          await this.persistRecordGeometry(row.id, geometry, layer.geometryKind);
           synced += 1;
         }
       } catch {
@@ -577,6 +634,44 @@ export class RecordsService implements OnModuleInit {
     }
 
     return synced;
+  }
+
+  private hasGeocodedFieldUpdate(
+    fields: Array<{ code: string; fieldType: string }>,
+    properties: Record<string, unknown>,
+  ): boolean {
+    return fields.some(
+      (field) =>
+        (field.fieldType === 'lat_lng' || field.fieldType === 'area_polygon') &&
+        field.code in properties,
+    );
+  }
+
+  private resolveGeometryFromProperties(
+    layer: { geometryKind: string; geometryType?: string | null },
+    fields: Array<{ code: string; fieldType: string; sortOrder?: number }>,
+    properties: Record<string, unknown>,
+  ): unknown | null {
+    if (layer.geometryKind === 'point' || layer.geometryType === 'point') {
+      return resolvePointFromLatLngFields(fields, properties);
+    }
+    if (isPolygonGeometryKind(layer.geometryKind)) {
+      return resolvePolygonFromAreaFields(fields, properties);
+    }
+    return null;
+  }
+
+  private async persistRecordGeometry(
+    featureId: string,
+    geometry: unknown,
+    geometryKind: string,
+  ) {
+    const geoType = (geometry as { type?: string })?.type;
+    if (geoType === 'Point') {
+      await this.syncPointGeometry(featureId, geometry as PointGeoJson);
+      return;
+    }
+    await this.updateGeometry(featureId, geometry, geometryKind);
   }
 
   private async findFeature(tenantId: string, layerId: string, recordId: string) {

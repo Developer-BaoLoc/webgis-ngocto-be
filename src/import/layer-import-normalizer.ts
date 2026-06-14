@@ -9,6 +9,7 @@ import {
   fieldsForImportValidation,
 } from '../records/utils/import-validation.util';
 import { parseMoneyImportValue } from '../records/utils/money-import.util';
+import { splitMultiCategoryInput } from '../records/utils/multi-category.util';
 import { getMoneyUnitLabel } from '../metadata/constants/field-units.constants';
 import { normalizeCategory, matchCategoryCode } from './import-normalizer';
 import {
@@ -47,6 +48,48 @@ function parseLatLngString(value: unknown): { lat: number; lng: number } | null 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
   return { lat, lng };
+}
+
+function parseAreaPolygonString(
+  value: unknown,
+): { coordinates: Array<{ lat: number; lng: number }> } | null {
+  if (typeof value === 'object' && value !== null) {
+    const record = value as { coordinates?: unknown };
+    if (Array.isArray(record.coordinates)) {
+      const coordinates = record.coordinates
+        .map((item) => parseLatLngString(item))
+        .filter((item): item is { lat: number; lng: number } => item !== null);
+      return coordinates.length >= 3 ? { coordinates } : null;
+    }
+    if (Array.isArray(value)) {
+      const coordinates = value
+        .map((item) => parseLatLngString(item))
+        .filter((item): item is { lat: number; lng: number } => item !== null);
+      return coordinates.length >= 3 ? { coordinates } : null;
+    }
+  }
+
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      return parseAreaPolygonString(JSON.parse(trimmed));
+    } catch {
+      return null;
+    }
+  }
+
+  const pairs = trimmed
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const coordinates = pairs
+    .map((pair) => parseLatLngString(pair))
+    .filter((item): item is { lat: number; lng: number } => item !== null);
+
+  return coordinates.length >= 3 ? { coordinates } : null;
 }
 
 function parseQuantityString(
@@ -132,10 +175,7 @@ export async function normalizeLayerImportProperties(
     if (field.fieldType === 'multi_category') {
       const dictCode = String(field.dataSchema.dictionary ?? '');
       const items = dictionaryItemsByCode[dictCode] ?? [];
-      const parts = String(value)
-        .split(/[,;/]/)
-        .map((part) => part.trim())
-        .filter(Boolean);
+      const parts = splitMultiCategoryInput(String(value));
       result[field.code] = parts
         .map((part) => matchCategoryCode(part, items))
         .filter(Boolean);
@@ -143,6 +183,11 @@ export async function normalizeLayerImportProperties(
 
     if (field.fieldType === 'lat_lng') {
       const parsed = parseLatLngString(value);
+      if (parsed) result[field.code] = parsed;
+    }
+
+    if (field.fieldType === 'area_polygon') {
+      const parsed = parseAreaPolygonString(value);
       if (parsed) result[field.code] = parsed;
     }
 
@@ -265,10 +310,7 @@ export function collectLayerImportRowErrors(input: {
     }
 
     if (field.fieldType === 'multi_category') {
-      const parts = String(raw)
-        .split(/[,;/]/)
-        .map((part) => part.trim())
-        .filter(Boolean);
+      const parts = splitMultiCategoryInput(String(raw));
       const normalized = normalizedProperties[field.code];
       const normalizedList = Array.isArray(normalized) ? normalized : [];
 
@@ -364,7 +406,89 @@ export function collectLayerImportRowErrors(input: {
         message: `Cột "${field.label}": dùng định dạng "lat, lng" hoặc để trống (giá trị hiện tại: "${toRawDisplay(raw)}")`,
       });
     }
+
+    if (
+      field.fieldType === 'area_polygon' &&
+      typeof normalizedProperties[field.code] !== 'object'
+    ) {
+      pushError({
+        rowNumber,
+        field: field.code,
+        fieldLabel: field.label,
+        rawValue: toRawDisplay(raw),
+        code: IMPORT_ERROR_CODES.INVALID_AREA_POLYGON,
+        message: `Cột "${field.label}": dùng "lat,lng; lat,lng; ..." (≥3 điểm) hoặc JSON coordinates (giá trị hiện tại: "${toRawDisplay(raw)}")`,
+      });
+    }
   }
 
   return errors;
+}
+
+type ImportRowLike = {
+  properties: Record<string, unknown>;
+  raw?: Record<string, unknown>;
+};
+
+export function collectDictionaryLabelsFromImportRows(
+  rows: ImportRowLike[],
+  fields: Array<Pick<SchemaField, 'code' | 'fieldType' | 'dataSchema'>>,
+): Record<string, string[]> {
+  const labelsByDict: Record<string, Set<string>> = {};
+
+  for (const field of fields) {
+    if (field.fieldType !== 'category' && field.fieldType !== 'multi_category') {
+      continue;
+    }
+
+    const dictCode = String(field.dataSchema.dictionary ?? '').trim();
+    if (!dictCode) continue;
+
+    if (!labelsByDict[dictCode]) {
+      labelsByDict[dictCode] = new Set();
+    }
+
+    for (const row of rows) {
+      const raw = row.properties[field.code] ?? row.raw?.[field.code];
+      if (raw === null || raw === undefined || raw === '') continue;
+
+      if (field.fieldType === 'multi_category') {
+        for (const part of splitMultiCategoryInput(String(raw))) {
+          labelsByDict[dictCode].add(part);
+        }
+      } else {
+        labelsByDict[dictCode].add(String(raw).trim());
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(labelsByDict).map(([code, set]) => [code, [...set]]),
+  );
+}
+
+export function augmentDictionaryItemsWithVirtualLabels(
+  dictionaryItemsByCode: Record<string, DictionaryItemEntity[]>,
+  virtualItemsByCode: Record<string, Array<{ code: string; label: string }>>,
+): Record<string, DictionaryItemEntity[]> {
+  const result: Record<string, DictionaryItemEntity[]> = {
+    ...dictionaryItemsByCode,
+  };
+
+  for (const [dictCode, virtualItems] of Object.entries(virtualItemsByCode)) {
+    if (virtualItems.length === 0) continue;
+
+    result[dictCode] = [
+      ...(result[dictCode] ?? []),
+      ...virtualItems.map(
+        (item) =>
+          ({
+            code: item.code,
+            label: item.label,
+          }) as DictionaryItemEntity,
+      ),
+    ];
+  }
+
+  return result;
 }

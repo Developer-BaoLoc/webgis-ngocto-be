@@ -46,8 +46,11 @@ function buildFieldHint(field: LayerSchemaField): string {
   if (field.fieldType === 'lat_lng') {
     parts.push('Định dạng: "lat, lng" (có thể để trống, vẽ bản đồ sau)');
   }
+  if (field.fieldType === 'area_polygon') {
+    parts.push('Định dạng: "lat,lng; lat,lng; ..." (≥3 điểm) hoặc JSON coordinates');
+  }
   if (field.fieldType === 'multi_category') {
-    parts.push('Nhiều giá trị: phân tách bằng dấu phẩy');
+    parts.push('Nhiều giá trị: mỗi giá trị trên một dòng (Alt+Enter trong Excel)');
   }
 
   return parts.join(' · ');

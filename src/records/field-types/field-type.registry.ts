@@ -1,5 +1,9 @@
 import { parseLatLngValue } from '../utils/lat-lng-geometry.util';
 import {
+  normalizeAreaPolygonValue,
+  parseAreaPolygonValue,
+} from '../utils/area-polygon-geometry.util';
+import {
   normalizeAttachmentList,
   validateAttachmentList,
 } from '../utils/attachment-field.util';
@@ -16,6 +20,7 @@ import {
   buildNormalizedMoneyValue,
   extractMoneySourceAmount,
 } from '../utils/money-import.util';
+import { splitMultiCategoryInput } from '../utils/multi-category.util';
 
 export type FieldValidationError = {
   field: string;
@@ -183,7 +188,7 @@ const multiCategoryHandler: FieldTypeHandler = {
   normalize(value) {
     if (Array.isArray(value)) return value.map(String);
     if (typeof value === 'string') {
-      return value.split(/[,;+]/).map((s) => s.trim()).filter(Boolean);
+      return splitMultiCategoryInput(value);
     }
     return value;
   },
@@ -257,6 +262,32 @@ const latLngHandler: FieldTypeHandler = {
   },
 };
 
+const areaPolygonHandler: FieldTypeHandler = {
+  type: 'area_polygon',
+  validate(value, config) {
+    if (config.required && isEmpty(value)) {
+      return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
+    }
+    if (isEmpty(value)) return null;
+
+    const parsed = parseAreaPolygonValue(value);
+    if (!parsed) {
+      return {
+        field: '',
+        code: 'INVALID_TYPE',
+        message: 'Phải là { coordinates: [{ lat, lng }, ...] } với ít nhất 3 điểm',
+      };
+    }
+
+    return null;
+  },
+  normalize(value) {
+    const parsed = parseAreaPolygonValue(value);
+    if (!parsed) return null;
+    return normalizeAreaPolygonValue(parsed);
+  },
+};
+
 const HANDLERS: Record<string, FieldTypeHandler> = {
   text: textHandler,
   textarea: textareaHandler,
@@ -268,6 +299,7 @@ const HANDLERS: Record<string, FieldTypeHandler> = {
   phone: phoneHandler,
   quantity: quantityHandler,
   lat_lng: latLngHandler,
+  area_polygon: areaPolygonHandler,
   image: imageHandler,
   file: fileHandler,
 };

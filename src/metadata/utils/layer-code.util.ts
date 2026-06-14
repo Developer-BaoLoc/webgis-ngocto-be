@@ -30,6 +30,25 @@ export function slugifyLayerCode(name: string): string {
   return /^[a-z]/.test(slug) ? slug : `l_${slug}`;
 }
 
+/** Sinh mã slug duy nhất trong tập mã đã có (dùng khi import/preview danh mục). */
+export function generateUniqueCodeInSet(
+  label: string,
+  existingCodes: Set<string>,
+  fallback = 'gia_tri',
+): string {
+  const base = slugifyLayerCode(label) || fallback;
+  let code = base;
+  let suffix = 2;
+
+  while (existingCodes.has(code)) {
+    code = `${base}_${suffix}`;
+    suffix += 1;
+  }
+
+  existingCodes.add(code);
+  return code;
+}
+
 export async function generateUniqueLayerCode(
   layersRepository: Repository<LayerEntity>,
   tenantId: string,
