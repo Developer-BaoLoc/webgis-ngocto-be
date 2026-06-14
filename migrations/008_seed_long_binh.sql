@@ -88,39 +88,4 @@ VALUES (
     'tenant'
 );
 
--- System dictionaries (tenant_id NULL)
-INSERT INTO dictionaries (id, tenant_id, code, name, is_hierarchical) VALUES
-    ('90000000-0000-4000-8000-000000000001', NULL, 'loai_chu_the', 'Loại chủ thể', FALSE),
-    ('90000000-0000-4000-8000-000000000002', NULL, 'tinh_trang_hoat_dong', 'Tình trạng hoạt động', FALSE),
-    ('90000000-0000-4000-8000-000000000003', NULL, 'xep_hang_ocop', 'Xếp hạng OCOP', FALSE),
-    ('90000000-0000-4000-8000-000000000004', NULL, 'loai_bom', 'Loại bơm', FALSE);
-
-INSERT INTO dictionary_items (dictionary_id, code, label, sort_order) VALUES
-    ('90000000-0000-4000-8000-000000000001', 'hop_tac_xa', 'Hợp tác xã', 1),
-    ('90000000-0000-4000-8000-000000000001', 'to_hop_tac', 'Tổ hợp tác', 2),
-    ('90000000-0000-4000-8000-000000000002', 'active', 'Đang hoạt động', 1),
-    ('90000000-0000-4000-8000-000000000002', 'inactive', 'Không hoạt động', 2),
-    ('90000000-0000-4000-8000-000000000002', 'seasonal', 'Theo vụ', 3),
-    ('90000000-0000-4000-8000-000000000003', '3_sao', '3 sao', 1),
-    ('90000000-0000-4000-8000-000000000003', '4_sao', '4 sao', 2),
-    ('90000000-0000-4000-8000-000000000004', 'bom_dien', 'Bơm điện', 1),
-    ('90000000-0000-4000-8000-000000000004', 'bom_dau', 'Bơm dầu', 2);
-
--- Tenant dictionary: khu vực
-INSERT INTO dictionaries (id, tenant_id, code, name, is_hierarchical)
-VALUES (
-    '90000000-0000-4000-8000-000000000010',
-    'a0000000-0000-4000-8000-000000000001',
-    'khu_vuc',
-    'Khu vực',
-    FALSE
-);
-
-INSERT INTO dictionary_items (dictionary_id, code, label, sort_order, metadata)
-SELECT '90000000-0000-4000-8000-000000000010', code, name, row_number() OVER (ORDER BY code), jsonb_build_object('administrative_unit_id', id::text)
-FROM (
-    SELECT id, code, name FROM administrative_units
-    WHERE level = 'zone' AND tenant_id = 'a0000000-0000-4000-8000-000000000001'
-) z;
-
 COMMIT;

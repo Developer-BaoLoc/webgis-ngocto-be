@@ -1,3 +1,22 @@
+import { parseLatLngValue } from '../utils/lat-lng-geometry.util';
+import {
+  normalizeAttachmentList,
+  validateAttachmentList,
+} from '../utils/attachment-field.util';
+import {
+  DEFAULT_MAX_FIELD_FILES,
+  DEFAULT_MAX_FIELD_IMAGES,
+} from '../../assets/constants/field-attachment.constants';
+import {
+  getMeasurementMultiplier,
+  getMeasurementStorageUnit,
+} from '../../metadata/constants/field-units.constants';
+import { normalizeMoneyUnitCode } from '../utils/money-display.util';
+import {
+  buildNormalizedMoneyValue,
+  extractMoneySourceAmount,
+} from '../utils/money-import.util';
+
 export type FieldValidationError = {
   field: string;
   code: string;
@@ -56,16 +75,24 @@ const moneyHandler: FieldTypeHandler = {
   },
   normalize(value, config) {
     if (isEmpty(value)) return null;
-    const amount = typeof value === 'object' && value !== null && 'amount' in value
-      ? Number((value as { amount: number }).amount)
-      : Number(value);
-    const scale = (config.unitHint as string) === 'million_vnd' ? 1_000_000 : 1;
-    return {
-      amount: amount * scale,
-      currency: 'VND',
-      sourceValue: amount,
-      sourceScale: scale === 1_000_000 ? 'million_vnd' : 'vnd',
-    };
+    const unitCode = normalizeMoneyUnitCode(
+      String(
+        (typeof value === 'object' && value !== null && 'unit' in value
+          ? (value as { unit?: string }).unit
+          : null) ??
+          (typeof value === 'object' &&
+          value !== null &&
+          'sourceUnit' in value
+            ? (value as { sourceUnit?: string }).sourceUnit
+            : null) ??
+          config.unit ??
+          config.unitHint ??
+          'vnd',
+      ),
+    );
+    const sourceAmount = extractMoneySourceAmount(value, unitCode);
+    if (sourceAmount === null) return null;
+    return buildNormalizedMoneyValue(sourceAmount, unitCode);
   },
 };
 
@@ -79,15 +106,27 @@ const measurementHandler: FieldTypeHandler = {
   },
   normalize(value, config) {
     if (isEmpty(value)) return null;
-    const num = typeof value === 'object' && value !== null && 'value' in value
-      ? Number((value as { value: number }).value)
-      : Number(value);
-    const unit = (config.defaultUnit as string) ?? 'ha';
+    const measurementType = String(config.measurementType ?? 'area');
+    const num =
+      typeof value === 'object' && value !== null && 'value' in value
+        ? Number((value as { value: number }).value)
+        : Number(value);
+    const unit = String(
+      (typeof value === 'object' && value !== null && 'unit' in value
+        ? (value as { unit?: string }).unit
+        : null) ??
+        config.unit ??
+        config.defaultUnit ??
+        (measurementType === 'distance' ? 'm' : 'ha'),
+    );
+    const multiplier = getMeasurementMultiplier(measurementType, unit);
+    const storageUnit = getMeasurementStorageUnit(measurementType);
     return {
       value: num,
       unit,
-      normalizedValue: unit === 'ha' ? num : num,
-      normalizedUnit: unit,
+      measurementType,
+      normalizedValue: num * multiplier,
+      normalizedUnit: storageUnit,
     };
   },
 };
@@ -108,7 +147,31 @@ const categoryHandler: FieldTypeHandler = {
 
 const textareaHandler: FieldTypeHandler = { ...textHandler, type: 'textarea' };
 const phoneHandler: FieldTypeHandler = { ...textHandler, type: 'phone' };
-const quantityHandler: FieldTypeHandler = { ...textHandler, type: 'quantity' };
+const quantityHandler: FieldTypeHandler = {
+  type: 'quantity',
+  validate(value, config) {
+    if (config.required && isEmpty(value)) {
+      return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
+    }
+    return null;
+  },
+  normalize(value, config) {
+    if (isEmpty(value)) return null;
+    const num =
+      typeof value === 'object' && value !== null && 'value' in value
+        ? Number((value as { value: number }).value)
+        : Number(value);
+    const unit = String(
+      (typeof value === 'object' && value !== null && 'unit' in value
+        ? (value as { unit?: string }).unit
+        : null) ??
+        config.unit ??
+        config.defaultUnit ??
+        'kg',
+    );
+    return { value: num, unit };
+  },
+};
 const multiCategoryHandler: FieldTypeHandler = {
   type: 'multi_category',
   validate(value, config) {
@@ -126,6 +189,74 @@ const multiCategoryHandler: FieldTypeHandler = {
   },
 };
 
+const createAttachmentHandler = (
+  type: string,
+  defaultMaxCount: number,
+): FieldTypeHandler => ({
+  type,
+  validate(value, config) {
+    const err = validateAttachmentList(value, {
+      ...config,
+      maxCount: config.maxCount ?? config.maxFiles ?? defaultMaxCount,
+    });
+    if (!err) return null;
+    return { field: '', code: err.code, message: err.message };
+  },
+  normalize(value) {
+    if (isEmpty(value)) return [];
+    return normalizeAttachmentList(value);
+  },
+});
+
+const imageHandler = createAttachmentHandler('image', DEFAULT_MAX_FIELD_IMAGES);
+const fileHandler = createAttachmentHandler('file', DEFAULT_MAX_FIELD_FILES);
+
+const latLngHandler: FieldTypeHandler = {
+  type: 'lat_lng',
+  validate(value, config) {
+    if (config.required && isEmpty(value)) {
+      return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
+    }
+    if (isEmpty(value)) return null;
+
+    const parsed = parseLatLngValue(value);
+    if (!parsed) {
+      return {
+        field: '',
+        code: 'INVALID_TYPE',
+        message: 'Phải là object { lat, lng }',
+      };
+    }
+
+    if (parsed.lat < -90 || parsed.lat > 90) {
+      return {
+        field: '',
+        code: 'INVALID_LAT',
+        message: 'lat phải từ -90 đến 90',
+      };
+    }
+
+    if (parsed.lng < -180 || parsed.lng > 180) {
+      return {
+        field: '',
+        code: 'INVALID_LNG',
+        message: 'lng phải từ -180 đến 180',
+      };
+    }
+
+    return null;
+  },
+  normalize(value) {
+    const parsed = parseLatLngValue(value);
+    if (!parsed) return null;
+
+    return {
+      lat: Math.round(parsed.lat * 1e6) / 1e6,
+      lng: Math.round(parsed.lng * 1e6) / 1e6,
+    };
+  },
+};
+
 const HANDLERS: Record<string, FieldTypeHandler> = {
   text: textHandler,
   textarea: textareaHandler,
@@ -136,6 +267,9 @@ const HANDLERS: Record<string, FieldTypeHandler> = {
   multi_category: multiCategoryHandler,
   phone: phoneHandler,
   quantity: quantityHandler,
+  lat_lng: latLngHandler,
+  image: imageHandler,
+  file: fileHandler,
 };
 
 export function getFieldHandler(fieldType: string): FieldTypeHandler {
@@ -158,6 +292,8 @@ export function validateProperties(
     const config = {
       ...field.dataSchema,
       unitHint: unitHints[field.code] ?? field.dataSchema.unitHint,
+      unit: field.dataSchema.unit ?? field.dataSchema.defaultUnit,
+      measurementType: field.dataSchema.measurementType,
     };
     const err = handler.validate(properties[field.code], config);
     if (err) {
@@ -184,7 +320,8 @@ export function normalizeProperties(
     const config = {
       ...field.dataSchema,
       unitHint: unitHints[field.code] ?? field.dataSchema.unitHint,
-      defaultUnit: field.dataSchema.defaultUnit ?? 'ha',
+      unit: field.dataSchema.unit ?? field.dataSchema.defaultUnit,
+      measurementType: field.dataSchema.measurementType,
     };
     if (field.code in result) {
       result[field.code] = handler.normalize(result[field.code], config);

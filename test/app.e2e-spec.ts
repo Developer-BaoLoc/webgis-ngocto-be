@@ -55,7 +55,20 @@ describe('App (e2e)', () => {
       .expect(200)
       .expect((res) => {
         expect(res.body.data.project.name).toBe('GIS Long Bình');
+        expect(res.body.data.project.mapView).toBeDefined();
+        expect(res.body.data.project.mapView.bounds).toHaveLength(4);
         expect(Array.isArray(res.body.data.layers)).toBe(true);
+      });
+  });
+
+  it('/api/layers/administrative-boundary (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/api/layers/administrative-boundary')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.type).toBe('FeatureCollection');
+        expect(res.body.features.length).toBeGreaterThan(0);
+        expect(res.body.features[0].geometry.type).toBe('MultiPolygon');
       });
   });
 

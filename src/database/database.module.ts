@@ -28,6 +28,12 @@ import {
   ImportTemplateEntity,
   JobExecutionEntity,
 } from './entities/import.entity';
+import { AttachmentEntity } from './entities/attachment.entity';
+import {
+  DashboardEntity,
+  DashboardRevisionEntity,
+  DashboardWidgetEntity,
+} from './entities/analytics.entity';
 
 const entities = [
   TenantEntity,
@@ -48,6 +54,10 @@ const entities = [
   JobExecutionEntity,
   ImportJobEntity,
   ImportTemplateEntity,
+  AttachmentEntity,
+  DashboardEntity,
+  DashboardRevisionEntity,
+  DashboardWidgetEntity,
 ];
 
 @Module({
@@ -66,7 +76,7 @@ const entities = [
           database: db.name,
           entities,
           synchronize: false,
-          logging: configService.get('nodeEnv', { infer: true }) === 'development',
+          logging: db.logging,
         };
       },
     }),

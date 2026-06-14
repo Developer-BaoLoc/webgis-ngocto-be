@@ -20,12 +20,14 @@ import { AuthenticatedUser } from '../common/types/api.types';
 import { apiResponse } from '../common/utils/api-response.util';
 import { CreateLayerDto } from './dto/create-layer.dto';
 import { UpdateLayerDto } from './dto/update-layer.dto';
+import { AdministrativeBoundaryService } from '../modules/administrative-boundary/administrative-boundary.service';
 
 @Controller('layers')
 export class LayersController {
   constructor(
     private readonly metadataService: MetadataService,
     private readonly configService: ConfigService,
+    private readonly administrativeBoundaryService: AdministrativeBoundaryService,
   ) {}
 
   @Public()
@@ -76,6 +78,18 @@ export class LayersController {
     return apiResponse(layer, { requestId });
   }
 
+  @Public()
+  @Get('administrative-boundary')
+  getAdministrativeBoundary() {
+    return this.administrativeBoundaryService.findAllAsGeoJson();
+  }
+
+  @Public()
+  @Get('administrative-boundary/metadata')
+  getAdministrativeBoundaryMetadata() {
+    return this.administrativeBoundaryService.getMetadata();
+  }
+
   @Get(':layerId/schema/draft')
   async getDraftSchema(
     @CurrentUser() user: AuthenticatedUser,
@@ -110,10 +124,11 @@ export class LayersController {
     @Query('status') status?: string,
     @RequestId() requestId?: string,
   ) {
-    const schema =
-      status === 'draft'
-        ? await this.metadataService.getDraftSchema(user.tenantId, layerId)
-        : await this.metadataService.getPublishedSchema(user.tenantId, layerId);
+    const schema = await this.metadataService.getLayerSchema(
+      user.tenantId,
+      layerId,
+      status,
+    );
     return apiResponse(schema, { requestId });
   }
 
@@ -151,6 +166,7 @@ export class LayersController {
     const result = await this.metadataService.deleteLayer(
       user.tenantId,
       layerId,
+      user.id,
     );
     return apiResponse(result, { requestId });
   }

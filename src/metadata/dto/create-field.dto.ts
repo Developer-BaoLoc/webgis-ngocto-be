@@ -4,20 +4,12 @@ import {
   IsObject,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
 import { FIELD_TYPES } from '../constants/metadata.constants';
 
 export class CreateFieldDto {
-  @IsString()
-  @Matches(/^[a-z][a-z0-9_]*$/, {
-    message: 'code phải là snake_case',
-  })
-  @MaxLength(128)
-  code: string;
-
   @IsString()
   @MaxLength(255)
   label: string;

@@ -19,6 +19,12 @@ export interface ApiMeta {
   pageSize?: number;
   total?: number;
   totalPages?: number;
+  columns?: Array<{
+    code: string;
+    label: string;
+    fieldType: string;
+    required: boolean;
+  }>;
 }
 
 export interface ApiResponse<T> {

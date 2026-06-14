@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { AppConfig } from '../config/configuration';
 import {
@@ -14,20 +14,44 @@ import {
   LayerSchemaVersionEntity,
   SchemaFieldVersionEntity,
 } from '../database/entities/metadata.entity';
-import { CreateLayerDto } from './dto/create-layer.dto';
+import { CreateLayerDto, LayerStyleInput } from './dto/create-layer.dto';
 import { UpdateLayerDto } from './dto/update-layer.dto';
 import { CreateFieldDto } from './dto/create-field.dto';
 import { UpdateFieldDto } from './dto/update-field.dto';
-import { FIELD_TYPES, GEOMETRY_KINDS } from './constants/metadata.constants';
+import { FIELD_TYPE_CATALOG } from './constants/metadata.constants';
+import { FIELD_DISPLAY_SCHEMA_OPTIONS, MAP_POPUP_DISPLAY_GROUP } from './constants/field-display.constants';
+import {
+  GEOMETRY_KIND_TO_TYPE,
+  GEOMETRY_TYPE_TO_KIND,
+  LAYER_GEOMETRY_TYPE_CATALOG,
+  LAYER_ICON_UPLOAD,
+  LayerGeometryType,
+  LayerStyleConfig,
+} from './constants/layer-geometry.constants';
+import {
+  buildStyleConfig,
+  generateUniqueLayerCode,
+  parseStoredStyleConfig,
+} from './utils/layer-code.util';
+import { generateUniqueFieldCode } from './utils/field-code.util';
+import {
+  resolveDictionaryCode,
+  validateFieldDataSchema,
+} from './utils/field-schema.validator';
+import { AssetsService } from '../assets/assets.service';
+import { DictionariesService } from '../dictionaries/dictionaries.service';
+import { WardBoundaryService } from '../ward-boundary/ward-boundary.service';
 
 export type LayerSummary = {
   id: string;
   code: string;
   name: string;
   description: string | null;
+  geometryType: LayerGeometryType | null;
   geometryKind: string;
   geometryRequired: boolean;
   sortOrder: number;
+  style: ReturnType<typeof parseStoredStyleConfig>;
   endpoint: string;
 };
 
@@ -44,27 +68,48 @@ export class MetadataService {
     private readonly schemaFieldsRepository: Repository<SchemaFieldVersionEntity>,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly dataSource: DataSource,
+    private readonly assetsService: AssetsService,
+    private readonly dictionariesService: DictionariesService,
+    private readonly wardBoundaryService: WardBoundaryService,
   ) {}
 
   getProjectInfo() {
     const ward = this.configService.get('ward', { infer: true });
+    const mapView = this.wardBoundaryService.getMapView();
+
     return {
       name: 'GIS Long Bình',
       description: 'Hệ thống thông tin địa lý phường Long Bình, Cần Thơ',
       ward: ward.name,
       district: ward.district,
       province: ward.province,
-      center: ward.center,
-      defaultZoom: ward.defaultZoom,
+      center: mapView.center,
+      defaultZoom: mapView.defaultZoom,
+      mapView,
     };
   }
 
-  getFieldTypeCatalog() {
-    return FIELD_TYPES.map((type) => ({ type }));
+  getMapView() {
+    return this.wardBoundaryService.getMapView();
   }
 
-  getGeometryKindCatalog() {
-    return GEOMETRY_KINDS.map((kind) => ({ kind }));
+  getFieldTypeCatalog() {
+    return FIELD_TYPE_CATALOG;
+  }
+
+  getFieldDisplaySchemaOptions() {
+    return {
+      groups: [MAP_POPUP_DISPLAY_GROUP],
+      options: FIELD_DISPLAY_SCHEMA_OPTIONS,
+    };
+  }
+
+  getLayerGeometryTypeCatalog() {
+    return LAYER_GEOMETRY_TYPE_CATALOG;
+  }
+
+  getLayerIconUploadConfig() {
+    return LAYER_ICON_UPLOAD;
   }
 
   async listLayers(tenantId: string): Promise<LayerSummary[]> {
@@ -80,26 +125,39 @@ export class MetadataService {
       where: { tenantId },
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
-    return layers.map((layer) => this.toLayerDetail(layer));
+    const draftMap = await this.resolveDraftSchemaIdMap(
+      tenantId,
+      layers.map((layer) => layer.id),
+    );
+    return layers.map((layer) =>
+      this.toLayerDetail(layer, draftMap.get(layer.id) ?? null),
+    );
   }
 
   async createLayer(tenantId: string, userId: string, dto: CreateLayerDto) {
-    const existing = await this.layersRepository.findOne({
-      where: { tenantId, code: dto.code },
-    });
-    if (existing) {
-      throw new ConflictException(`Layer code đã tồn tại: ${dto.code}`);
-    }
+    const code = await generateUniqueLayerCode(
+      this.layersRepository,
+      tenantId,
+      dto.name,
+    );
+    const resolvedStyle = await this.resolveStyleInput(
+      tenantId,
+      dto.geometryType,
+      dto.style,
+    );
+    const styleConfig = buildStyleConfig(dto.geometryType, resolvedStyle);
+    const geometryKind = GEOMETRY_TYPE_TO_KIND[dto.geometryType];
 
     const layer = await this.layersRepository.save(
       this.layersRepository.create({
         tenantId,
-        code: dto.code,
+        code,
         name: dto.name,
         description: dto.description ?? null,
-        geometryKind: dto.geometryKind,
-        geometryRequired: dto.geometryRequired ?? false,
+        geometryKind,
+        geometryRequired: false,
         sortOrder: dto.sortOrder ?? 0,
+        styleConfig: styleConfig as unknown as Record<string, unknown>,
       }),
     );
 
@@ -110,10 +168,7 @@ export class MetadataService {
       'Schema ban đầu',
     );
 
-    return {
-      ...this.toLayerDetail(layer),
-      draftSchemaId: draft.id,
-    };
+    return this.toLayerDetail(layer, draft.id);
   }
 
   async updateLayer(tenantId: string, layerId: string, dto: UpdateLayerDto) {
@@ -121,37 +176,102 @@ export class MetadataService {
 
     if (dto.name !== undefined) layer.name = dto.name;
     if (dto.description !== undefined) layer.description = dto.description;
-    if (dto.geometryKind !== undefined) layer.geometryKind = dto.geometryKind;
-    if (dto.geometryRequired !== undefined) {
-      layer.geometryRequired = dto.geometryRequired;
-    }
     if (dto.sortOrder !== undefined) layer.sortOrder = dto.sortOrder;
     if (dto.isActive !== undefined) layer.isActive = dto.isActive;
 
-    await this.layersRepository.save(layer);
-    return this.toLayerDetail(layer);
-  }
-
-  async deleteLayer(tenantId: string, layerId: string) {
-    const layer = await this.findLayer(tenantId, layerId, false);
-    const countRows = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS cnt FROM features WHERE tenant_id = $1 AND layer_id = $2 AND deleted_at IS NULL`,
-      [tenantId, layerId],
-    );
-    if (countRows[0]?.cnt > 0) {
-      throw new BadRequestException(
-        'Không thể xóa layer đang có bản ghi. Xóa records trước.',
+    if (dto.geometryType !== undefined || dto.style !== undefined) {
+      const currentStyle = parseStoredStyleConfig(
+        layer.geometryKind,
+        layer.styleConfig ?? {},
       );
+      const geometryType =
+        dto.geometryType ??
+        currentStyle?.geometryType ??
+        GEOMETRY_KIND_TO_TYPE[layer.geometryKind];
+
+      if (!geometryType) {
+        throw new BadRequestException('Không xác định được geometryType');
+      }
+
+      const mergedStyle = {
+        ...this.flattenStyleForInput(currentStyle),
+        ...(dto.style ?? {}),
+      };
+      const resolvedStyle = await this.resolveStyleInput(
+        tenantId,
+        geometryType,
+        mergedStyle,
+      );
+      const styleConfig = buildStyleConfig(
+        geometryType,
+        resolvedStyle,
+      );
+
+      if (dto.geometryType !== undefined) {
+        const countRows = await this.dataSource.query(
+          `SELECT COUNT(*)::int AS cnt FROM features
+           WHERE tenant_id = $1 AND layer_id = $2 AND deleted_at IS NULL AND geometry IS NOT NULL`,
+          [tenantId, layerId],
+        );
+        if (countRows[0]?.cnt > 0) {
+          throw new BadRequestException(
+            'Không đổi loại geometry khi layer đã có bản ghi có tọa độ',
+          );
+        }
+        layer.geometryKind = GEOMETRY_TYPE_TO_KIND[dto.geometryType];
+      }
+
+      layer.styleConfig = styleConfig as unknown as Record<string, unknown>;
     }
 
-    layer.isActive = false;
     await this.layersRepository.save(layer);
-    return { id: layerId, deleted: true };
+    return this.enrichLayerDetail(tenantId, layer);
+  }
+
+  async deleteLayer(tenantId: string, layerId: string, userId: string) {
+    const layer = await this.findLayer(tenantId, layerId, false);
+
+    return this.dataSource.transaction(async (manager) => {
+      const countRows = await manager.query(
+        `SELECT COUNT(*)::int AS cnt FROM features
+         WHERE tenant_id = $1 AND layer_id = $2 AND deleted_at IS NULL`,
+        [tenantId, layerId],
+      );
+      const recordsDeleted = countRows[0]?.cnt ?? 0;
+
+      if (recordsDeleted > 0) {
+        await manager.query(
+          `DELETE FROM feature_relations
+           WHERE tenant_id = $1
+           AND (
+             source_feature_id IN (
+               SELECT id FROM features WHERE tenant_id = $1 AND layer_id = $2
+             )
+             OR target_feature_id IN (
+               SELECT id FROM features WHERE tenant_id = $1 AND layer_id = $2
+             )
+           )`,
+          [tenantId, layerId],
+        );
+
+        await manager.query(
+          `UPDATE features
+           SET deleted_at = NOW(), deleted_by = $3
+           WHERE tenant_id = $1 AND layer_id = $2 AND deleted_at IS NULL`,
+          [tenantId, layerId, userId],
+        );
+      }
+
+      layer.isActive = false;
+      await manager.getRepository(LayerEntity).save(layer);
+
+      return { id: layerId, deleted: true, recordsDeleted };
+    });
   }
 
   async getLayerById(tenantId: string, layerId: string) {
     const layer = await this.findLayer(tenantId, layerId);
-    return this.toLayerDetail(layer);
+    return this.enrichLayerDetail(tenantId, layer);
   }
 
   async getLayerByCode(tenantId: string, code: string) {
@@ -161,7 +281,7 @@ export class MetadataService {
     if (!layer) {
       throw new NotFoundException(`Layer không tồn tại: ${code}`);
     }
-    return this.toLayerDetail(layer);
+    return this.enrichLayerDetail(tenantId, layer);
   }
 
   async getPublishedSchema(tenantId: string, layerId: string) {
@@ -170,6 +290,41 @@ export class MetadataService {
       throw new NotFoundException('Layer chưa có schema published');
     }
     return this.getSchemaById(tenantId, layerId, layer.currentSchemaVersionId);
+  }
+
+  /**
+   * Schema cho FE: published nếu có, không thì trả draft (layer mới chưa có field).
+   * `status=draft` | `status=published` để ép một loại cụ thể.
+   */
+  async getLayerSchema(tenantId: string, layerId: string, status?: string) {
+    if (status === 'draft') {
+      return this.getDraftSchema(tenantId, layerId);
+    }
+
+    if (status === 'published') {
+      return this.getPublishedSchema(tenantId, layerId);
+    }
+
+    const layer = await this.findLayer(tenantId, layerId, false);
+    if (layer.currentSchemaVersionId) {
+      return this.getSchemaById(
+        tenantId,
+        layerId,
+        layer.currentSchemaVersionId,
+      );
+    }
+
+    const draft = await this.schemaVersionsRepository.findOne({
+      where: { tenantId, layerId, status: 'draft' },
+      order: { version: 'DESC' },
+    });
+    if (draft) {
+      return this.getSchemaById(tenantId, layerId, draft.id);
+    }
+
+    throw new NotFoundException(
+      'Layer chưa có schema. Hãy thêm ít nhất một trường dữ liệu.',
+    );
   }
 
   async getDraftSchema(tenantId: string, layerId: string) {
@@ -182,6 +337,11 @@ export class MetadataService {
       throw new NotFoundException('Không có schema draft');
     }
     return this.getSchemaById(tenantId, layerId, draft.id);
+  }
+
+  async getSchemaDraftById(tenantId: string, schemaId: string) {
+    const schema = await this.findDraftSchema(tenantId, schemaId);
+    return this.getSchemaById(tenantId, schema.layerId, schema.id);
   }
 
   async createSchemaDraft(tenantId: string, layerId: string, userId: string) {
@@ -255,29 +415,30 @@ export class MetadataService {
   async addFieldToDraft(
     tenantId: string,
     schemaId: string,
+    userId: string,
     dto: CreateFieldDto,
   ) {
     const schema = await this.findDraftSchema(tenantId, schemaId);
-
-    const dupField = await this.fieldsRepository.findOne({
-      where: { layerId: schema.layerId, storageKey: dto.code },
-    });
-    if (dupField) {
-      throw new ConflictException(`Field code đã tồn tại: ${dto.code}`);
-    }
+    const code = await generateUniqueFieldCode(
+      this.fieldsRepository,
+      schema.layerId,
+      dto.label,
+    );
 
     const dupSchemaField = await this.schemaFieldsRepository.findOne({
-      where: { schemaVersionId: schema.id, code: dto.code },
+      where: { schemaVersionId: schema.id, code },
     });
     if (dupSchemaField) {
-      throw new ConflictException(`Field code đã có trong draft: ${dto.code}`);
+      throw new ConflictException(`Field code đã có trong draft: ${code}`);
     }
+
+    await this.assertFieldDataSchema(tenantId, dto.fieldType, dto.dataSchema ?? {});
 
     const field = await this.fieldsRepository.save(
       this.fieldsRepository.create({
         layerId: schema.layerId,
         tenantId,
-        storageKey: dto.code,
+        storageKey: code,
       }),
     );
 
@@ -293,7 +454,7 @@ export class MetadataService {
         fieldId: field.id,
         layerId: schema.layerId,
         tenantId,
-        code: dto.code,
+        code,
         label: dto.label,
         fieldType: dto.fieldType,
         dataSchema: dto.dataSchema ?? {},
@@ -303,13 +464,14 @@ export class MetadataService {
       }),
     );
 
-    return this.getSchemaById(tenantId, schema.layerId, schema.id);
+    return this.autoPublishDraftAfterFieldChange(tenantId, schema.id, userId);
   }
 
   async updateFieldInDraft(
     tenantId: string,
     schemaId: string,
     fieldId: string,
+    userId: string,
     dto: UpdateFieldDto,
   ) {
     const schema = await this.findDraftSchema(tenantId, schemaId);
@@ -320,24 +482,84 @@ export class MetadataService {
       throw new NotFoundException('Field không tồn tại trong draft');
     }
 
+    const nextFieldType = dto.fieldType ?? schemaField.fieldType;
+    const nextDataSchema =
+      dto.dataSchema !== undefined ? dto.dataSchema : schemaField.dataSchema;
+    await this.assertFieldDataSchema(tenantId, nextFieldType, nextDataSchema ?? {});
+
     if (dto.label !== undefined) schemaField.label = dto.label;
     if (dto.fieldType !== undefined) schemaField.fieldType = dto.fieldType;
     if (dto.dataSchema !== undefined) schemaField.dataSchema = dto.dataSchema;
     if (dto.uiSchema !== undefined) schemaField.uiSchema = dto.uiSchema;
     if (dto.displaySchema !== undefined) {
-      schemaField.displaySchema = dto.displaySchema;
+      schemaField.displaySchema = {
+        ...schemaField.displaySchema,
+        ...dto.displaySchema,
+      };
     }
     if (dto.sortOrder !== undefined) schemaField.sortOrder = dto.sortOrder;
     if (dto.isActive !== undefined) schemaField.isActive = dto.isActive;
 
     await this.schemaFieldsRepository.save(schemaField);
-    return this.getSchemaById(tenantId, schema.layerId, schema.id);
+    return this.autoPublishDraftAfterFieldChange(tenantId, schema.id, userId);
+  }
+
+  async reorderFieldsInDraft(
+    tenantId: string,
+    schemaId: string,
+    userId: string,
+    fieldIds: string[],
+  ) {
+    const schema = await this.findDraftSchema(tenantId, schemaId);
+    const fields = await this.schemaFieldsRepository.find({
+      where: {
+        schemaVersionId: schema.id,
+        layerId: schema.layerId,
+        isActive: true,
+      },
+    });
+
+    if (fields.length === 0) {
+      throw new BadRequestException('Schema draft chưa có field');
+    }
+
+    const uniqueIds = new Set(fieldIds);
+    if (uniqueIds.size !== fieldIds.length) {
+      throw new BadRequestException('fieldIds không được trùng lặp');
+    }
+
+    if (fieldIds.length !== fields.length) {
+      throw new BadRequestException(
+        `Phải gửi đủ ${fields.length} fieldId theo thứ tự hiển thị`,
+      );
+    }
+
+    const activeFieldIds = new Set(fields.map((field) => field.fieldId));
+    for (const fieldId of fieldIds) {
+      if (!activeFieldIds.has(fieldId)) {
+        throw new BadRequestException(`Field không thuộc draft: ${fieldId}`);
+      }
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      for (let index = 0; index < fieldIds.length; index += 1) {
+        await manager.query(
+          `UPDATE schema_field_versions
+           SET sort_order = $4
+           WHERE schema_version_id = $1 AND layer_id = $2 AND field_id = $3`,
+          [schema.id, schema.layerId, fieldIds[index], index + 1],
+        );
+      }
+    });
+
+    return this.autoPublishDraftAfterFieldChange(tenantId, schema.id, userId);
   }
 
   async deleteFieldFromDraft(
     tenantId: string,
     schemaId: string,
     fieldId: string,
+    userId: string,
   ) {
     const schema = await this.findDraftSchema(tenantId, schemaId);
     const schemaField = await this.schemaFieldsRepository.findOne({
@@ -349,7 +571,15 @@ export class MetadataService {
 
     schemaField.isActive = false;
     await this.schemaFieldsRepository.save(schemaField);
-    return this.getSchemaById(tenantId, schema.layerId, schema.id);
+    return this.autoPublishDraftAfterFieldChange(tenantId, schema.id, userId);
+  }
+
+  private async autoPublishDraftAfterFieldChange(
+    tenantId: string,
+    schemaId: string,
+    userId: string,
+  ) {
+    return this.publishSchema(tenantId, schemaId, userId);
   }
 
   async getSchemaFieldsForVersion(schemaVersionId: string, layerId: string) {
@@ -357,6 +587,55 @@ export class MetadataService {
       where: { schemaVersionId, layerId, isActive: true },
       order: { sortOrder: 'ASC' },
     });
+  }
+
+  private async resolveStyleInput(
+    tenantId: string,
+    geometryType: LayerGeometryType,
+    style: LayerStyleInput,
+  ): Promise<Record<string, unknown>> {
+    const input: Record<string, unknown> = { ...style };
+
+    const attachmentId = String(style.iconAttachmentId ?? '').trim();
+    if (geometryType === 'point' && attachmentId) {
+      const attachment = await this.assetsService.getAttachment(
+        tenantId,
+        attachmentId,
+      );
+      input.iconUrl = this.assetsService.buildPublicUrl(attachment.id);
+      input.iconAttachmentId = attachment.id;
+    }
+
+    return input;
+  }
+
+  private flattenStyleForInput(
+    stored: LayerStyleConfig | null,
+  ): Record<string, unknown> {
+    if (!stored) return {};
+
+    if (stored.geometryType === 'point') {
+      const icon = stored.icon;
+      if (icon.source === 'upload') {
+        return {
+          iconAttachmentId: icon.attachmentId,
+          iconUrl: icon.url,
+        };
+      }
+      return { icon: icon.name };
+    }
+
+    if (stored.geometryType === 'line') {
+      return {
+        lineColor: stored.lineColor,
+        lineWidth: stored.lineWidth,
+      };
+    }
+
+    return {
+      fillColor: stored.fillColor,
+      strokeColor: stored.strokeColor,
+    };
   }
 
   private async createSchemaDraftInternal(
@@ -445,6 +724,7 @@ export class MetadataService {
     });
 
     return {
+      id: schema.id,
       layerId: layer.id,
       layerCode: layer.code,
       schemaVersionId: schema.id,
@@ -490,24 +770,95 @@ export class MetadataService {
   }
 
   private toLayerSummary(layer: LayerEntity): LayerSummary {
+    const style = parseStoredStyleConfig(
+      layer.geometryKind,
+      layer.styleConfig ?? {},
+    );
     return {
       id: layer.id,
       code: layer.code,
       name: layer.name,
       description: layer.description,
+      geometryType:
+        style?.geometryType ?? GEOMETRY_KIND_TO_TYPE[layer.geometryKind],
       geometryKind: layer.geometryKind,
       geometryRequired: layer.geometryRequired,
       sortOrder: layer.sortOrder,
+      style,
       endpoint: `/api/layers/${layer.id}/geojson`,
     };
   }
 
-  private toLayerDetail(layer: LayerEntity) {
+  private toLayerDetail(layer: LayerEntity, draftSchemaId: string | null = null) {
     return {
       ...this.toLayerSummary(layer),
       renderMode: layer.renderMode,
       isActive: layer.isActive,
       currentSchemaVersionId: layer.currentSchemaVersionId,
+      draftSchemaId,
     };
+  }
+
+  private async enrichLayerDetail(tenantId: string, layer: LayerEntity) {
+    const draftSchemaId = await this.findDraftSchemaId(tenantId, layer.id);
+    return this.toLayerDetail(layer, draftSchemaId);
+  }
+
+  private async findDraftSchemaId(
+    tenantId: string,
+    layerId: string,
+  ): Promise<string | null> {
+    const draft = await this.schemaVersionsRepository.findOne({
+      where: { tenantId, layerId, status: 'draft' },
+      order: { version: 'DESC' },
+      select: { id: true },
+    });
+    return draft?.id ?? null;
+  }
+
+  private async resolveDraftSchemaIdMap(tenantId: string, layerIds: string[]) {
+    const map = new Map<string, string>();
+    if (layerIds.length === 0) {
+      return map;
+    }
+
+    const drafts = await this.schemaVersionsRepository.find({
+      where: {
+        tenantId,
+        layerId: In(layerIds),
+        status: 'draft',
+      },
+      order: { version: 'DESC' },
+      select: { id: true, layerId: true },
+    });
+
+    for (const draft of drafts) {
+      if (!map.has(draft.layerId)) {
+        map.set(draft.layerId, draft.id);
+      }
+    }
+
+    return map;
+  }
+
+  private async assertFieldDataSchema(
+    tenantId: string,
+    fieldType: string,
+    dataSchema: Record<string, unknown>,
+  ) {
+    validateFieldDataSchema(fieldType, dataSchema);
+
+    if (['category', 'multi_category'].includes(fieldType)) {
+      const dictionaryCode = resolveDictionaryCode(dataSchema);
+      const exists = await this.dictionariesService.exists(
+        tenantId,
+        dictionaryCode,
+      );
+      if (!exists) {
+        throw new BadRequestException(
+          `Danh mục không tồn tại: ${dictionaryCode}. Tạo danh mục trước khi gắn vào field.`,
+        );
+      }
+    }
   }
 }

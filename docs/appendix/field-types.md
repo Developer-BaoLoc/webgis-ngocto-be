@@ -35,6 +35,9 @@ interface FieldTypeHandler {
 | `category` | Danh mục 1 giá trị | string (dictionary item code) | count, group |
 | `multi_category` | Danh mục nhiều giá trị | string[] | — |
 | `reference` | Liên kết feature khác | uuid | — |
+| `lat_lng` | Toạ độ | `{ lat, lng }` | — |
+| `image` | Hình ảnh (nhiều) | `AttachmentRef[]` | — |
+| `file` | Tệp tin (nhiều) | `AttachmentRef[]` | — |
 
 ## Phase 2 — Bổ sung
 
@@ -42,8 +45,6 @@ interface FieldTypeHandler {
 |------------|--------|
 | `email` | Email validated |
 | `url` | URL |
-| `image` | attachment_id[] |
-| `file` | attachment_id[] |
 | `status` | operational_status + status_note |
 
 ## Phase 3 — Bổ sung
@@ -58,70 +59,183 @@ interface FieldTypeHandler {
 
 ### money
 
+**Đơn vị bắt buộc** (`dataSchema.unit`):
+
+| code | Label |
+|------|-------|
+| `vnd` | VNĐ |
+| `hundred_thousand` | Trăm nghìn đồng |
+| `million` | Triệu đồng |
+| `billion` | Tỷ đồng |
+
 ```json
 {
   "fieldType": "money",
   "dataSchema": {
     "required": false,
-    "currency": "VND",
-    "defaultScale": "million",
-    "min": 0
-  },
-  "displaySchema": {
-    "format": "vi-VN",
-    "showScale": "triệu đồng"
+    "unit": "million"
   }
 }
 ```
 
-Normalize import:
-- `2420` + header "triệu đồng" → `{ amount: 2420000000, sourceScale: "million" }`
-- `7923000000` → `{ amount: 7923000000, sourceScale: "unit" }`
+Value shape sau normalize:
 
-### measurement (diện tích)
+```json
+{ "amount": 2420000000, "currency": "VND", "unit": "million", "sourceValue": 2420, "sourceUnit": "million" }
+```
+
+- `amount` — luôn quy đổi về **VNĐ** (để tính toán/aggregation)
+- `sourceValue` + `sourceUnit` — giá trị user nhập (2420 triệu)
+- Hiển thị popup/chi tiết: dùng `sourceValue` + label đơn vị; nếu thiếu `sourceValue` thì `amount / hệ số đơn vị`
+
+### measurement
+
+**Loại + đơn vị bắt buộc:**
+
+| measurementType | Đơn vị |
+|-----------------|--------|
+| `distance` | `m`, `km` |
+| `area` | `m2`, `ha` |
 
 ```json
 {
   "fieldType": "measurement",
   "dataSchema": {
     "measurementType": "area",
-    "allowedUnits": ["m2", "ha"],
-    "storageUnit": "m2",
-    "displayUnit": "ha"
+    "unit": "ha",
+    "required": true
   }
 }
 ```
 
 Normalize:
-- `17` + header "(ha)" → `{ value: 17, unit: "ha", normalizedValue: 170000, normalizedUnit: "m2" }`
-- `"40m2"` → `{ value: 40, unit: "m2", normalizedValue: 40, normalizedUnit: "m2" }`
+- `17` + unit `ha` → `{ value: 17, unit: "ha", measurementType: "area", normalizedValue: 170000, normalizedUnit: "m2" }`
+- `2.5` + unit `km` → `{ value: 2.5, unit: "km", measurementType: "distance", normalizedValue: 2500, normalizedUnit: "m" }`
 
 ### quantity (sản lượng)
+
+**Đơn vị bắt buộc** (`dataSchema.unit`):
+
+| code | Label |
+|------|-------|
+| `kg` | kg |
+| `tan` | tấn |
+| `lit` | lít |
+| `m3` | m³ |
+| `con` | con |
+| `bo` | bó |
+| `cay` | cây |
 
 ```json
 {
   "fieldType": "quantity",
   "dataSchema": {
-    "allowedUnits": ["tan", "lit", "con", "ha"]
+    "unit": "kg",
+    "required": true
   }
 }
 ```
 
-Case phức tạp `"10.000 con lươn, 5.000 con ếch"` → child layer `production_output` (Phase 3), không parse thành 1 string.
+Value: `{ "value": 1500, "unit": "kg" }`
 
 ### category
+
+Danh mục **dùng chung** — bắt buộc chọn `dataSchema.dictionary`:
 
 ```json
 {
   "fieldType": "category",
   "dataSchema": {
-    "dictionaryCode": "nganh_nghe",
-    "allowCustom": false
+    "dictionary": "nganh_nghe_san_xuat",
+    "required": true
   }
 }
 ```
 
+Tạo danh mục: `POST /api/dictionaries`, thêm mục: `POST /api/dictionaries/:code/items`.
+
 Import: fuzzy match "Dịch vụ bơm tưới" → "bom_tuoi" dictionary item.
+
+### lat_lng (Toạ độ)
+
+```json
+{
+  "fieldType": "lat_lng",
+  "dataSchema": {
+    "required": false
+  },
+  "uiSchema": {
+    "component": "lat_lng"
+  }
+}
+```
+
+Value trong `properties`:
+
+```json
+{
+  "vi_tri": { "lat": 10.0125, "lng": 105.785 }
+}
+```
+
+- `lat`: -90 … 90 (vĩ độ)
+- `lng`: -180 … 180 (kinh độ)
+
+**Lớp điểm (`point`):** BE tự đồng bộ `{ lat, lng }` → PostGIS `geometry` (Point) khi tạo/sửa bản ghi. GeoJSON endpoint cũng fallback từ `properties` nếu geometry chưa lưu.
+
+### image (Hình ảnh — nhiều ảnh)
+
+Upload trước, lưu mảng attachment vào `properties`:
+
+```
+POST /api/assets/field-images/upload        (1 ảnh, field: file)
+POST /api/assets/field-images/upload-batch  (nhiều ảnh, field: files)
+```
+
+Định dạng: PNG, JPEG, WebP, GIF — tối đa 5MB/ảnh, tối đa 20 ảnh/trường.
+
+```json
+{
+  "fieldType": "image",
+  "dataSchema": { "required": false, "maxCount": 10 }
+}
+```
+
+Value trong `properties`:
+
+```json
+{
+  "hinh_anh": [
+    {
+      "attachmentId": "uuid",
+      "url": "/api/assets/uuid/file",
+      "originalName": "htx.jpg",
+      "mimeType": "image/jpeg",
+      "sizeBytes": 245000
+    }
+  ]
+}
+```
+
+FE có thể gửi chỉ `[{ "attachmentId": "uuid" }]` — BE tự bổ sung `url`.
+
+### file (Tệp tin — nhiều file)
+
+```
+POST /api/assets/field-files/upload
+POST /api/assets/field-files/upload-batch
+```
+
+Định dạng: PDF, Word, Excel, ZIP, TXT, CSV — tối đa 10MB/file, tối đa 20 file/trường.
+
+```json
+{
+  "fieldType": "file",
+  "dataSchema": { "required": true }
+}
+```
+
+Value shape giống `image` (mảng `AttachmentRef`).
 
 ### status
 
@@ -155,7 +269,20 @@ Normalize:
 |--------|--------|
 | **data_schema** | required, validation, default, dictionaryCode |
 | **ui_schema** | component, section, width, placeholder, conditional |
-| **display_schema** | visibleInTable, visibleInPopup, format, sortable |
+| **display_schema** | showOnMapPopup, popupBold, popupFontSize, popupTextColor, visibleInTable, format, sortable |
+
+### displaySchema — popup bản đồ
+
+| Key | Label UI | Mô tả |
+|-----|----------|-------|
+| `showOnMapPopup` | Hiển thị khi click trên bản đồ | Bật = hiện trong popup khi click icon |
+| `popupBold` | In đậm | In đậm giá trị trên popup |
+| `popupFontSize` | Cỡ chữ | `small` · `medium` · `large` |
+| `popupTextColor` | Màu chữ | Hex `#RRGGBB` |
+
+BE trả `popupStyle: { bold?, fontSize?, color? }` trong `popupSummary` (GeoJSON) và `display.popup[]`.
+
+Catalog: `GET /api/metadata/field-display-options`
 
 ## Tham chiếu
 

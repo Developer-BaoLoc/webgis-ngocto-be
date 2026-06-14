@@ -245,6 +245,7 @@ Mỗi module backend = **một file** trong [docs/modules/](./modules/). Đọc 
 | Tenants | [tenants.md](./modules/tenants.md) | ✅ | Tenant context |
 | Organizations | [organizations.md](./modules/organizations.md) | ✅ | Danh sách org |
 | **Frontend CRUD** | [frontend-crud-guide.md](./modules/frontend-crud-guide.md) | ✅ | Hướng dẫn tích hợp layer/field/records |
+| **Assets (icon upload)** | [assets.md](./modules/assets.md) | ✅ | Upload icon lớp điểm |
 | GIS Catalog | [metadata.md](./modules/metadata.md) | ✅ Phase 1 | Khởi tạo map, sidebar layers (DB) |
 | Records | [records.md](./modules/records.md) | ✅ Phase 1 | CRUD + GeoJSON dynamic |
 | Import | [import.md](./modules/import.md) | ✅ Phase 1 | Upload Excel |

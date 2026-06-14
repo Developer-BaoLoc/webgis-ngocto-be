@@ -61,6 +61,14 @@ export function normalizeCategory(
   raw: unknown,
   items: DictionaryItemEntity[],
 ): string | null {
+  return matchCategoryCode(raw, items) ?? (String(raw ?? '').trim() || null);
+}
+
+/** Import: chỉ trả code khi khớp danh mục, không fallback text thô. */
+export function matchCategoryCode(
+  raw: unknown,
+  items: DictionaryItemEntity[],
+): string | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const text = normalizeText(String(raw));
   const match = items.find(
@@ -69,7 +77,7 @@ export function normalizeCategory(
       item.code === text ||
       normalizeText(item.label).includes(text),
   );
-  return match?.code ?? String(raw).trim();
+  return match?.code ?? null;
 }
 
 export function normalizeLoaiBom(raw: unknown): string | null {

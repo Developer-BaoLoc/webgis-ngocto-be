@@ -8,35 +8,44 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
 import { RecordsService } from './records.service';
+import { Public } from '../common/decorators/public.decorator';
 import {
   CurrentUser,
   RequestId,
 } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/api.types';
 import { apiResponse } from '../common/utils/api-response.util';
+import { AppConfig } from '../config/configuration';
 
 @Controller('layers/:layerId')
 export class RecordsController {
-  constructor(private readonly recordsService: RecordsService) {}
+  constructor(
+    private readonly recordsService: RecordsService,
+    private readonly configService: ConfigService<AppConfig, true>,
+  ) {}
 
+  @Public()
   @Get('geojson')
   async geojson(
-    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request & { user?: AuthenticatedUser },
     @Param('layerId', ParseUUIDPipe) layerId: string,
     @Query('bbox') bbox?: string,
     @Query('includeUnlocated') includeUnlocated?: string,
     @RequestId() requestId?: string,
   ) {
-    const collection = await this.recordsService.getGeoJson(
-      user.tenantId,
-      layerId,
-      {
-        bbox,
-        includeUnlocated: includeUnlocated === 'true',
-      },
-    );
+    const tenantId =
+      req.user?.tenantId ??
+      this.configService.get('tenant.defaultId', { infer: true }) ??
+      '';
+    const collection = await this.recordsService.getGeoJson(tenantId, layerId, {
+      bbox,
+      includeUnlocated: includeUnlocated === 'true',
+    });
     return apiResponse(collection, { requestId });
   }
 
@@ -46,15 +55,15 @@ export class RecordsController {
     @Param('layerId', ParseUUIDPipe) layerId: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('q') q?: string,
     @RequestId() requestId?: string,
   ) {
     const result = await this.recordsService.listRecords(
       user.tenantId,
       layerId,
-      {
-        page: page ? parseInt(page, 10) : 1,
-        pageSize: pageSize ? parseInt(pageSize, 10) : 50,
-      },
+      { page, pageSize, sortBy, sortOrder, q },
     );
     return apiResponse(result.items, {
       requestId,
@@ -62,6 +71,7 @@ export class RecordsController {
       pageSize: result.pageSize,
       total: result.total,
       totalPages: result.totalPages,
+      columns: result.columns,
     });
   }
 
@@ -83,6 +93,26 @@ export class RecordsController {
       },
     );
     return apiResponse(record, { requestId });
+  }
+
+  @Public()
+  @Get('records/:recordId/display')
+  async getDisplay(
+    @Req() req: Request & { user?: AuthenticatedUser },
+    @Param('layerId', ParseUUIDPipe) layerId: string,
+    @Param('recordId', ParseUUIDPipe) recordId: string,
+    @RequestId() requestId?: string,
+  ) {
+    const tenantId =
+      req.user?.tenantId ??
+      this.configService.get('tenant.defaultId', { infer: true }) ??
+      '';
+    const display = await this.recordsService.getRecordDisplay(
+      tenantId,
+      layerId,
+      recordId,
+    );
+    return apiResponse(display, { requestId });
   }
 
   @Get('records/:recordId')

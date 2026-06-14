@@ -1,22 +1,50 @@
+import { Transform } from 'class-transformer';
 import {
-  IsBoolean,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
-import { GEOMETRY_KINDS } from '../constants/metadata.constants';
+import { LAYER_GEOMETRY_TYPES } from '../constants/layer-geometry.constants';
+
+export function stripStyleNoise(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const copy = { ...(value as Record<string, unknown>) };
+  delete copy.geometryType;
+
+  const icon = copy.icon;
+  if (icon && typeof icon === 'object' && icon !== null && 'source' in icon) {
+    const iconObj = icon as {
+      source: string;
+      attachmentId?: string;
+      url?: string;
+      name?: string;
+    };
+    if (iconObj.source === 'upload' && iconObj.attachmentId) {
+      copy.iconAttachmentId ??= iconObj.attachmentId;
+      copy.iconUrl ??= iconObj.url;
+      delete copy.icon;
+    } else if (iconObj.source === 'preset' && iconObj.name) {
+      copy.icon = iconObj.name;
+    } else {
+      delete copy.icon;
+    }
+  }
+
+  return copy;
+}
+
+/** Input style từ FE — validate business rules trong MetadataService */
+export type LayerStyleInput = Record<string, unknown>;
 
 export class CreateLayerDto {
-  @IsString()
-  @Matches(/^[a-z][a-z0-9_]*$/, {
-    message: 'code phải là snake_case (a-z, số, _)',
-  })
-  @MaxLength(64)
-  code: string;
+  @IsIn([...LAYER_GEOMETRY_TYPES])
+  geometryType: 'point' | 'line' | 'polygon';
 
   @IsString()
   @MaxLength(255)
@@ -26,15 +54,12 @@ export class CreateLayerDto {
   @IsString()
   description?: string;
 
-  @IsIn([...GEOMETRY_KINDS])
-  geometryKind: string;
-
-  @IsOptional()
-  @IsBoolean()
-  geometryRequired?: boolean;
-
   @IsOptional()
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @Transform(({ value }) => stripStyleNoise(value))
+  @IsObject()
+  style: LayerStyleInput;
 }

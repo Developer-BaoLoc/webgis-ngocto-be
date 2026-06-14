@@ -35,6 +35,9 @@ export class LayerEntity {
   @Column({ name: 'render_mode', type: 'varchar', default: 'geojson' })
   renderMode: string;
 
+  @Column({ name: 'style_config', type: 'jsonb', default: {} })
+  styleConfig: Record<string, unknown>;
+
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 

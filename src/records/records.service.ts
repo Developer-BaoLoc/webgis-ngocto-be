@@ -1,30 +1,62 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
+import { AppConfig } from '../config/configuration';
 import { FeatureEntity } from '../database/entities/feature.entity';
 import { MetadataService } from '../metadata/metadata.service';
 import {
   normalizeProperties,
   validateProperties,
 } from './field-types/field-type.registry';
+import {
+  buildUnitHints,
+  fieldsForImportValidation,
+} from './utils/import-validation.util';
+import { resolvePointFromLatLngFields } from './utils/lat-lng-geometry.util';
+import type { PointGeoJson } from './utils/lat-lng-geometry.util';
+import { RecordDisplayService } from './record-display.service';
+import {
+  parseRecordListQuery,
+  ParsedRecordListQuery,
+  RecordListQueryInput,
+} from './utils/record-list-query.util';
 
-export type RecordListQuery = {
-  page?: number;
-  pageSize?: number;
-};
+export type RecordListQuery = RecordListQueryInput;
+export type { ParsedRecordListQuery };
 
 @Injectable()
-export class RecordsService {
+export class RecordsService implements OnModuleInit {
+  private readonly logger = new Logger(RecordsService.name);
+
   constructor(
     @InjectRepository(FeatureEntity)
     private readonly featuresRepository: Repository<FeatureEntity>,
     private readonly metadataService: MetadataService,
     private readonly dataSource: DataSource,
+    private readonly configService: ConfigService<AppConfig, true>,
+    private readonly recordDisplayService: RecordDisplayService,
   ) {}
+
+  async onModuleInit() {
+    const tenantId = this.configService.get('tenant.defaultId', { infer: true });
+    try {
+      const synced = await this.backfillLatLngGeometries(tenantId);
+      if (synced > 0) {
+        this.logger.log(`Đã đồng bộ geometry cho ${synced} bản ghi lat/lng`);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Backfill lat/lng geometry: ${error instanceof Error ? error.message : error}`,
+      );
+    }
+  }
 
   async listRecords(
     tenantId: string,
@@ -33,30 +65,92 @@ export class RecordsService {
   ) {
     await this.metadataService.getLayerById(tenantId, layerId);
 
-    const page = query.page ?? 1;
-    const pageSize = Math.min(query.pageSize ?? 50, 200);
+    const { page, pageSize, sortBy, sortOrder, q } = parseRecordListQuery(query);
     const skip = (page - 1) * pageSize;
+    const tableContext = await this.recordDisplayService.buildListTableContext(
+      tenantId,
+      layerId,
+    );
 
-    const [items, total] = await this.featuresRepository.findAndCount({
-      where: { tenantId, layerId },
-      order: { createdAt: 'DESC' },
-      skip,
-      take: pageSize,
-    });
+    const qb = this.featuresRepository
+      .createQueryBuilder('feature')
+      .where('feature.tenantId = :tenantId', { tenantId })
+      .andWhere('feature.layerId = :layerId', { layerId });
+
+    if (q) {
+      qb.andWhere('feature.properties::text ILIKE :q', { q: `%${q}%` });
+    }
+
+    const sortColumn =
+      sortBy === 'updatedAt' ? 'feature.updatedAt' : 'feature.createdAt';
+    qb.orderBy(sortColumn, sortOrder.toUpperCase() as 'ASC' | 'DESC');
+
+    const [items, total] = await qb.skip(skip).take(pageSize).getManyAndCount();
 
     return {
-      items: items.map((f) => this.toRecordResponse(f)),
+      items: items.map((feature) => ({
+        ...this.toRecordResponse(feature),
+        cells: this.recordDisplayService.buildTableCells(
+          tableContext,
+          feature.properties,
+        ),
+      })),
+      columns: tableContext.columns,
       page,
       pageSize,
       total,
-      totalPages: Math.ceil(total / pageSize),
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
     };
   }
 
   async getRecord(tenantId: string, layerId: string, recordId: string) {
     const feature = await this.findFeature(tenantId, layerId, recordId);
-    const geometry = await this.loadGeometryGeoJson(feature.id);
-    return { ...this.toRecordResponse(feature), geometry };
+    const layer = await this.metadataService.getLayerById(tenantId, layerId);
+    let schemaFields: Array<{
+      code: string;
+      fieldType: string;
+      sortOrder?: number;
+    }> = [];
+
+    try {
+      const schema = await this.metadataService.getPublishedSchema(
+        tenantId,
+        layerId,
+      );
+      schemaFields = schema.fields;
+    } catch {
+      schemaFields = [];
+    }
+
+    let geometry = await this.loadGeometryGeoJson(feature.id);
+    if (
+      !geometry &&
+      layer.geometryKind === 'point' &&
+      schemaFields.some((field) => field.fieldType === 'lat_lng')
+    ) {
+      geometry =
+        resolvePointFromLatLngFields(schemaFields, feature.properties) ?? null;
+    }
+
+    const display = await this.recordDisplayService.buildDisplay(
+      tenantId,
+      layerId,
+      recordId,
+      feature.properties,
+    );
+
+    return { ...this.toRecordResponse(feature), geometry, display };
+  }
+
+  async getRecordDisplay(tenantId: string, layerId: string, recordId: string) {
+    const feature = await this.findFeature(tenantId, layerId, recordId);
+    const display = await this.recordDisplayService.buildDisplay(
+      tenantId,
+      layerId,
+      recordId,
+      feature.properties,
+    );
+    return display;
   }
 
   async createRecord(
@@ -80,6 +174,22 @@ export class RecordsService {
 
     const normalized = normalizeProperties(schema.fields, properties);
 
+    let geometry = body.geometry;
+    let locationStatus = geometry ? 'located' : 'unlocated';
+    let geometrySource: string | null = geometry ? 'drawn' : null;
+
+    if (!geometry && (layer.geometryKind === 'point' || layer.geometryType === 'point')) {
+      const pointFromField = resolvePointFromLatLngFields(
+        schema.fields,
+        normalized,
+      );
+      if (pointFromField) {
+        geometry = pointFromField;
+        locationStatus = 'located';
+        geometrySource = 'geocoded';
+      }
+    }
+
     const feature = this.featuresRepository.create({
       tenantId,
       layerId,
@@ -88,14 +198,81 @@ export class RecordsService {
       administrativeUnitId: body.administrativeUnitId ?? null,
       createdBy: userId,
       updatedBy: userId,
-      locationStatus: body.geometry ? 'located' : 'unlocated',
-      geometrySource: body.geometry ? 'drawn' : null,
+      locationStatus,
+      geometrySource,
     });
 
     const saved = await this.featuresRepository.save(feature);
 
-    if (body.geometry) {
-      await this.updateGeometry(saved.id, body.geometry, layer.geometryKind);
+    if (geometry) {
+      await this.syncPointGeometry(saved.id, geometry as PointGeoJson);
+    }
+
+    return this.getRecord(tenantId, layerId, saved.id);
+  }
+
+  async createRecordFromImport(
+    tenantId: string,
+    layerId: string,
+    userId: string,
+    body: {
+      properties?: Record<string, unknown>;
+      geometry?: unknown;
+      administrativeUnitId?: string;
+    },
+  ) {
+    const layer = await this.metadataService.getLayerById(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+
+    const properties = body.properties ?? {};
+    const importFields = fieldsForImportValidation(schema.fields);
+    const errors = validateProperties(
+      importFields,
+      properties,
+      buildUnitHints(schema.fields),
+    );
+    if (errors.length > 0) {
+      throw new BadRequestException({ code: 'VALIDATION_ERROR', details: errors });
+    }
+
+    const normalized = normalizeProperties(
+      schema.fields,
+      properties,
+      buildUnitHints(schema.fields),
+    );
+
+    let geometry = body.geometry;
+    let locationStatus = geometry ? 'located' : 'unlocated';
+    let geometrySource: string | null = geometry ? 'drawn' : null;
+
+    if (!geometry && (layer.geometryKind === 'point' || layer.geometryType === 'point')) {
+      const pointFromField = resolvePointFromLatLngFields(
+        schema.fields,
+        normalized,
+      );
+      if (pointFromField) {
+        geometry = pointFromField;
+        locationStatus = 'located';
+        geometrySource = 'geocoded';
+      }
+    }
+
+    const feature = this.featuresRepository.create({
+      tenantId,
+      layerId,
+      schemaVersionId: schema.schemaVersionId,
+      properties: normalized,
+      administrativeUnitId: body.administrativeUnitId ?? null,
+      createdBy: userId,
+      updatedBy: userId,
+      locationStatus,
+      geometrySource,
+    });
+
+    const saved = await this.featuresRepository.save(feature);
+
+    if (geometry) {
+      await this.syncPointGeometry(saved.id, geometry as PointGeoJson);
     }
 
     return this.getRecord(tenantId, layerId, saved.id);
@@ -114,6 +291,7 @@ export class RecordsService {
   ) {
     const feature = await this.findFeature(tenantId, layerId, recordId);
     const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const layer = await this.metadataService.getLayerById(tenantId, layerId);
 
     if (body.rowVersion !== undefined && body.rowVersion !== feature.rowVersion) {
       throw new BadRequestException({
@@ -136,17 +314,33 @@ export class RecordsService {
 
     if (body.geometry !== undefined) {
       if (body.geometry === null) {
-        await this.dataSource.query(
-          `UPDATE features SET geometry = NULL, location_status = 'unlocated', geometry_source = NULL WHERE id = $1`,
-          [feature.id],
-        );
+        await this.clearGeometry(feature.id);
         feature.locationStatus = 'unlocated';
         feature.geometrySource = null;
       } else {
-        const layer = await this.metadataService.getLayerById(tenantId, layerId);
         await this.updateGeometry(feature.id, body.geometry, layer.geometryKind);
         feature.locationStatus = 'located';
         feature.geometrySource = 'drawn';
+      }
+    } else if (
+      body.properties &&
+      layer.geometryKind === 'point' &&
+      schema.fields.some(
+        (field) => field.fieldType === 'lat_lng' && field.code in body.properties!,
+      )
+    ) {
+      const pointFromField = resolvePointFromLatLngFields(
+        schema.fields,
+        feature.properties,
+      );
+      if (pointFromField) {
+        await this.syncPointGeometry(feature.id, pointFromField);
+        feature.locationStatus = 'located';
+        feature.geometrySource = 'geocoded';
+      } else {
+        await this.clearGeometry(feature.id);
+        feature.locationStatus = 'unlocated';
+        feature.geometrySource = null;
       }
     }
 
@@ -213,11 +407,31 @@ export class RecordsService {
       includeUnlocated?: boolean;
     },
   ) {
-    await this.metadataService.getLayerById(tenantId, layerId);
+    const layer = await this.metadataService.getLayerById(tenantId, layerId);
+    let schemaFields: Array<{
+      code: string;
+      fieldType: string;
+      sortOrder?: number;
+    }> = [];
+
+    try {
+      const schema = await this.metadataService.getPublishedSchema(
+        tenantId,
+        layerId,
+      );
+      schemaFields = schema.fields;
+    } catch {
+      schemaFields = [];
+    }
+
+    const useLatLngFallback =
+      layer.geometryKind === 'point' &&
+      schemaFields.some((field) => field.fieldType === 'lat_lng');
+
     const params: unknown[] = [tenantId, layerId];
     let spatialFilter = '';
 
-    if (options.bbox) {
+    if (options.bbox && !useLatLngFallback) {
       const parts = options.bbox.split(',').map(Number);
       if (parts.length !== 4 || parts.some(Number.isNaN)) {
         throw new BadRequestException('bbox phải là minLng,minLat,maxLng,maxLat');
@@ -227,7 +441,7 @@ export class RecordsService {
         ${options.includeUnlocated ? 'OR geometry IS NULL' : ''}
       )`;
       params.push(parts[0], parts[1], parts[2], parts[3]);
-    } else if (!options.includeUnlocated) {
+    } else if (!options.includeUnlocated && !useLatLngFallback) {
       spatialFilter = 'AND geometry IS NOT NULL';
     }
 
@@ -248,25 +462,121 @@ export class RecordsService {
       params,
     );
 
-    return {
-      type: 'FeatureCollection' as const,
-      features: rows.map(
-        (row: {
-          id: string;
-          geometry: unknown;
-          properties: Record<string, unknown>;
-          location_status: string;
-        }) => ({
+    const features = await Promise.all(
+      rows.map(async (row: {
+        id: string;
+        geometry: unknown;
+        properties: Record<string, unknown>;
+        location_status: string;
+      }) => {
+        let geometry = row.geometry;
+        if (!geometry && useLatLngFallback) {
+          geometry =
+            resolvePointFromLatLngFields(schemaFields, row.properties) ?? null;
+          if (geometry) {
+            void this.syncPointGeometry(row.id, geometry as PointGeoJson);
+          }
+        }
+
+        let popupSummary: Array<{
+          code: string;
+          label: string;
+          displayValue: string;
+          popupStyle?: {
+            bold?: boolean;
+            fontSize?: string;
+            color?: string;
+          };
+        }> = [];
+        try {
+          const summary = await this.recordDisplayService.buildPopupSummary(
+            tenantId,
+            layerId,
+            row.properties,
+          );
+          popupSummary = summary.fields.map((field) => ({
+            code: field.code,
+            label: field.label,
+            displayValue: field.displayValue,
+            ...(field.popupStyle ? { popupStyle: field.popupStyle } : {}),
+          }));
+        } catch {
+          popupSummary = [];
+        }
+
+        return {
           type: 'Feature' as const,
           id: row.id,
-          geometry: row.geometry,
+          geometry,
           properties: {
             ...row.properties,
             location_status: row.location_status,
+            _recordId: row.id,
+            _layerId: layerId,
+            popupSummary,
           },
-        }),
-      ),
+        };
+      }),
+    );
+
+    let result = features;
+
+    if (!options.includeUnlocated) {
+      result = result.filter((feature) => feature.geometry !== null);
+    }
+
+    if (options.bbox) {
+      const parts = options.bbox.split(',').map(Number);
+      const [minLng, minLat, maxLng, maxLat] = parts;
+      result = result.filter((feature) => {
+        if (!feature.geometry) return options.includeUnlocated === true;
+        const coords = (feature.geometry as { coordinates?: number[] }).coordinates;
+        if (!coords || coords.length < 2) return false;
+        const [lng, lat] = coords;
+        return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+      });
+    }
+
+    return {
+      type: 'FeatureCollection' as const,
+      features: result,
     };
+  }
+
+  async backfillLatLngGeometries(tenantId: string): Promise<number> {
+    const rows = await this.dataSource.query<
+      Array<{ id: string; layer_id: string; properties: Record<string, unknown> }>
+    >(
+      `
+      SELECT f.id, f.layer_id, f.properties
+      FROM features f
+      INNER JOIN layers l ON l.id = f.layer_id AND l.tenant_id = f.tenant_id
+      WHERE f.tenant_id = $1
+        AND f.deleted_at IS NULL
+        AND f.geometry IS NULL
+        AND l.geometry_kind = 'point'
+      `,
+      [tenantId],
+    );
+
+    let synced = 0;
+    for (const row of rows) {
+      try {
+        const schema = await this.metadataService.getPublishedSchema(
+          tenantId,
+          row.layer_id,
+        );
+        const point = resolvePointFromLatLngFields(schema.fields, row.properties);
+        if (point) {
+          await this.syncPointGeometry(row.id, point);
+          synced += 1;
+        }
+      } catch {
+        // layer chưa publish schema
+      }
+    }
+
+    return synced;
   }
 
   private async findFeature(tenantId: string, layerId: string, recordId: string) {
@@ -301,6 +611,32 @@ export class RecordsService {
     return rows[0]?.geometry ?? null;
   }
 
+  private async clearGeometry(featureId: string) {
+    await this.dataSource.query(
+      `UPDATE features
+       SET geometry = NULL,
+           geometry_area_m2 = NULL,
+           location_status = 'unlocated',
+           geometry_source = NULL
+       WHERE id = $1`,
+      [featureId],
+    );
+  }
+
+  private async syncPointGeometry(featureId: string, geometry: PointGeoJson) {
+    await this.dataSource.query(
+      `
+      UPDATE features
+      SET geometry = ST_SetSRID(ST_GeomFromGeoJSON($2), 4326),
+          geometry_area_m2 = NULL,
+          location_status = 'located',
+          geometry_source = 'geocoded'
+      WHERE id = $1
+      `,
+      [featureId, JSON.stringify(geometry)],
+    );
+  }
+
   private async updateGeometry(
     featureId: string,
     geometry: unknown,
@@ -314,7 +650,9 @@ export class RecordsService {
             WHEN ST_GeometryType(ST_GeomFromGeoJSON($2)) IN ('ST_Polygon', 'ST_MultiPolygon')
             THEN ST_Area(ST_SetSRID(ST_GeomFromGeoJSON($2), 4326)::geography)
             ELSE NULL
-          END
+          END,
+          location_status = 'located',
+          geometry_source = COALESCE(geometry_source, 'drawn')
       WHERE id = $1
       `,
       [featureId, JSON.stringify(geometry)],

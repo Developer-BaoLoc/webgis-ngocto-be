@@ -1,55 +1,56 @@
 # Module: Administrative Boundary (Ranh giới hành chính)
 
-| | |
-|---|---|
-| **Trạng thái** | 🔶 Prototype — GeoJSON rỗng |
-| **Phase thay thế** | Phase 1 → layer `administrative_zone` |
-| **Code** | `src/modules/administrative-boundary/` |
-
-## Mục đích
-
-Lớp ranh giới hành chính phường Long Bình (MultiPolygon).
+Lớp ranh giới phường — đọc từ `data/ward-boundaries/` theo cấu hình tenant.
 
 ## API
 
-| Method | Path | Mô tả |
-|--------|------|-------|
-| GET | `/api/layers/administrative-boundary` | GeoJSON FeatureCollection |
-| GET | `/api/layers/administrative-boundary/metadata` | Metadata lớp |
+| Method | Path | Auth | Mô tả |
+|--------|------|------|-------|
+| GET | `/api/layers/administrative-boundary` | Public | GeoJSON FeatureCollection (1 phường) |
+| GET | `/api/layers/administrative-boundary/metadata` | Public | Metadata lớp |
+| GET | `/api/metadata/map-view` | Public | center, bounds, zoom, boundaryEndpoint |
 
-### GeoJSON response
+## Map view (FE zoom + vẽ ranh)
 
-```json
-{ "type": "FeatureCollection", "features": [] }
-```
-
-### Metadata response
+`GET /api/layers` → `data.project.mapView`:
 
 ```json
 {
-  "id": "administrative-boundary",
-  "name": "Ranh giới hành chính",
-  "description": "Ranh giới hành chính Long Bình, Cái Răng, Cần Thơ",
-  "geometryType": "MultiPolygon",
-  "status": "planned",
-  "endpoint": "/api/layers/administrative-boundary"
+  "center": { "lat": 9.7283, "lng": 105.5865 },
+  "defaultZoom": 13,
+  "bounds": [105.5542, 9.6800, 105.6189, 9.7767],
+  "boundaryEndpoint": "/api/layers/administrative-boundary",
+  "ward": {
+    "name": "Long Bình",
+    "code": "long-binh",
+    "district": "Cái Răng",
+    "province": "Cần Thơ"
+  }
 }
 ```
 
-## Frontend
+- `bounds`: `[minLng, minLat, maxLng, maxLat]` — dùng `fitBounds` (MapLibre/Leaflet)
+- Ranh GeoJSON: `GET {boundaryEndpoint}` — response **raw** FeatureCollection (không bọc `{ data }`)
 
-- MapLibre: `fill` + `line` layer cho MultiPolygon
-- Hiện chưa có geometry — map trống là bình thường
+## Cấu hình phường khác
 
-## Debug
+Xem [data/ward-boundaries/README.md](../../data/ward-boundaries/README.md).
 
-```bash
-curl -s http://localhost:4000/api/layers/administrative-boundary | jq
-curl -s http://localhost:4000/api/layers/administrative-boundary/metadata | jq
+## Frontend (MapLibre gợi ý)
+
+```typescript
+const { data } = await fetch(`${API}/layers`).then(r => r.json());
+const { mapView } = data.project;
+
+const boundary = await fetch(`${API}${mapView.boundaryEndpoint.replace(/^\/api/, '')}`).then(r => r.json());
+// hoặc: fetch(`${API}/layers/administrative-boundary`)
+
+map.addSource('ward-boundary', { type: 'geojson', data: boundary });
+map.addLayer({ id: 'ward-fill', type: 'fill', source: 'ward-boundary', paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.08 } });
+map.addLayer({ id: 'ward-line', type: 'line', source: 'ward-boundary', paint: { 'line-color': '#2563eb', 'line-width': 2 } });
+
+map.fitBounds(
+  [[mapView.bounds[0], mapView.bounds[1]], [mapView.bounds[2], mapView.bounds[3]]],
+  { padding: 40, duration: 0 },
+);
 ```
-
-## Changelog
-
-| Ngày | Thay đổi |
-|------|----------|
-| 2026-06-13 | Khởi tạo |

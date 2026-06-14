@@ -1,13 +1,16 @@
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
   Min,
 } from 'class-validator';
-import { GEOMETRY_KINDS } from '../constants/metadata.constants';
+import { LAYER_GEOMETRY_TYPES } from '../constants/layer-geometry.constants';
+import { LayerStyleInput, stripStyleNoise } from './create-layer.dto';
 
 export class UpdateLayerDto {
   @IsOptional()
@@ -20,17 +23,18 @@ export class UpdateLayerDto {
   description?: string | null;
 
   @IsOptional()
-  @IsIn([...GEOMETRY_KINDS])
-  geometryKind?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  geometryRequired?: boolean;
+  @IsIn([...LAYER_GEOMETRY_TYPES])
+  geometryType?: 'point' | 'line' | 'polygon';
 
   @IsOptional()
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => stripStyleNoise(value))
+  @IsObject()
+  style?: LayerStyleInput;
 
   @IsOptional()
   @IsBoolean()

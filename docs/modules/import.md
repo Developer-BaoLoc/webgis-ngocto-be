@@ -1,40 +1,203 @@
-# Import (Phase 1)
+# Import Excel — Theo lớp dữ liệu (Layer)
 
-Upload Excel → preview → background job import.
+Luồng chính: **Tải file mẫu từ schema layer → User điền → Upload → Preview → Execute**.
 
-## Endpoints
+Không cần `import_templates` seed hay `templateCode` cố định — file mẫu **sinh tự động** từ published schema.
+
+## Endpoints (theo layer)
 
 | Method | Path | Auth | Mô tả |
 |--------|------|------|-------|
-| GET | `/api/imports/templates` | JWT | Templates Long Bình (HTX, THT, …) |
-| POST | `/api/imports/upload` | JWT | Upload file (`multipart/form-data`, field `file`) |
-| POST | `/api/imports/:importId/preview` | JWT | Preview 20 dòng |
-| POST | `/api/imports/:importId/execute` | JWT | Queue job |
-| GET | `/api/imports/:importId` | JWT | Trạng thái import |
-| GET | `/api/jobs/:jobId` | JWT | Progress job |
+| GET | `/api/layers/:layerId/imports/template` | JWT | Tải file Excel mẫu |
+| POST | `/api/layers/:layerId/imports/upload` | JWT | Upload file đã điền (`multipart/form-data`, field `file`) |
+| POST | `/api/layers/:layerId/imports/:importId/preview` | JWT | Validate **toàn bộ file** + preview 20 dòng đầu |
+| POST | `/api/layers/:layerId/imports/:importId/execute` | JWT | Import (chặn nếu còn lỗi validation) |
 
-## Flow
+**Yêu cầu:** Layer phải có **schema published**. Danh mục (`category`) nên có item trước khi import.
 
-1. `POST /api/imports/upload` → `{ importId, jobId }`
-2. `POST /api/imports/:importId/preview` body `{ "templateCode": "htx" }`
-3. `POST /api/imports/:importId/execute` body `{ "templateCode": "htx" }`
-4. Poll `GET /api/jobs/:jobId` → `{ progress: { processed, total, errors } }`
+## Luồng FE
 
-## Template codes
+```
+1. GET  /api/layers/:layerId/imports/template     → download .xlsx
+2. User điền dữ liệu (từ dòng 4 sheet Du_lieu)
+3. POST /api/layers/:layerId/imports/upload       → { importId, totalRows }
+4. POST /api/layers/:layerId/imports/:importId/preview
+5. POST /api/layers/:layerId/imports/:importId/execute
+```
 
-| code | Sheet | Layer |
-|------|-------|-------|
-| `htx` | HTX | economic_collective |
-| `to_hop_tac` | Tổ hợp tác | economic_collective |
-| `thuy_loi` | Thủy Lợi | pump_station |
-| `vung_san_xuat` | Vùng sản xuất | production_zone |
-| `sp_ocop` | SP OCOP | ocop_subject + ocop_product |
+`importId` = tên file lưu tạm trên server (UUID.xlsx), trả về sau bước upload.
 
-Chi tiết mapping: [import-excel-long-binh.md](../appendix/import-excel-long-binh.md)
+## Cấu trúc file Excel mẫu
 
-## Yêu cầu
+Hệ thống sinh 3 sheet:
 
-- Redis chạy (`docker compose up redis`) — chỉ khi Execute import
-- Layer + schema phải tạo qua CRUD trước khi import
+### Sheet `Du_lieu`
 
-> **Lưu ý:** Import templates seed đã gỡ — tạo layer/field qua admin CRUD trước. UI import làm sau.
+| Dòng | Nội dung |
+|------|----------|
+| 1 | Tiêu đề: `Mẫu import — {tên lớp}` |
+| 2 | Header = **label field** (cột bắt buộc có dấu `*`) |
+| 3 | Mã field (`ten_mo_hinh`, `dia_chi`, …) — **không sửa** |
+| 4+ | Dữ liệu user điền |
+
+Cột `STT` chỉ để theo dõi, không lưu DB.
+
+### Sheet `Huong_dan`
+
+- Hướng dẫn chung
+- Bảng field: bắt buộc, ghi chú kiểu dữ liệu, giá trị danh mục hợp lệ
+
+### Sheet `_meta` (ẩn / không sửa)
+
+JSON metadata: `layerId`, `schemaVersionId`, danh sách cột. Import từ chối file nếu thiếu sheet này.
+
+## Field types trong mẫu
+
+| Kiểu | Cột trong Excel | Ghi chú |
+|------|-----------------|---------|
+| text, integer, phone | Label field | |
+| money | Label (đơn vị trong schema) | Nhập theo đơn vị schema, VD: `2.6`, `2420` (triệu đồng). Hỗ trợ số thập phân. Hệ thống tự quy đổi nếu nhập VNĐ đầy đủ |
+| measurement | Label | Nhập số, VD: `17` (ha) |
+| quantity | Label | `351 tấn` hoặc `42` |
+| category | Label | Nhập **label** danh mục hoặc code |
+| multi_category | Label | Nhiều giá trị, phân tách `,` |
+| lat_lng | Label | `10.123, 106.456` — **có thể để trống** khi import |
+| image, file | **Không có** | Upload trong UI sau import |
+
+## Preview response
+
+Validate **tất cả dòng** trong file. FE hiển thị `errors` để user sửa Excel.
+
+```json
+{
+  "importId": "uuid.xlsx",
+  "layerId": "...",
+  "totalRows": 13,
+  "validRows": 11,
+  "errorRows": 2,
+  "errorCount": 5,
+  "canImport": false,
+  "message": "File có lỗi — sửa các dòng bên dưới rồi upload lại.",
+  "columns": [
+    { "fieldCode": "ten_mo_hinh", "label": "Tên mô hình", "required": true },
+    { "fieldCode": "dia_chi", "label": "Địa chỉ", "required": true }
+  ],
+  "errors": [
+    {
+      "rowNumber": 5,
+      "field": "dia_chi",
+      "fieldLabel": "Địa chỉ",
+      "rawValue": "Khu vực X",
+      "code": "INVALID_CATEGORY",
+      "message": "Giá trị \"Khu vực X\" không hợp lệ ở cột \"Địa chỉ\". Hãy dùng đúng tên trong sheet Huong_dan. Gợi ý: Kv Bình Lợi; KV Thạnh Hiếu; ..."
+    },
+    {
+      "rowNumber": 8,
+      "field": "ten_mo_hinh",
+      "fieldLabel": "Tên mô hình",
+      "rawValue": null,
+      "code": "REQUIRED",
+      "message": "Cột \"Tên mô hình\" bắt buộc — không được để trống"
+    }
+  ],
+  "previewRows": [
+    {
+      "rowNumber": 4,
+      "properties": { "ten_mo_hinh": "HTX ABC", "dia_chi": "kv_binh_loi" },
+      "rawProperties": { "ten_mo_hinh": "HTX ABC", "dia_chi": "Kv Bình Lợi" },
+      "errors": [],
+      "valid": true
+    }
+  ],
+  "previewCount": 13
+}
+```
+
+- **`errorRows`**: số **dòng Excel** có lỗi (VD: 12)
+- **`errorCount`**: tổng **số lỗi chi tiết** (một dòng có thể nhiều lỗi → VD: 48)
+- **`columns`**: dùng làm header bảng preview (theo `fieldCode` / `label`), **không** lấy key từ `rawProperties`
+- Parser tự nhận dòng tiêu đề / mã field nếu user xóa dòng 1 (tiêu đề) — vẫn map cột theo thứ tự trong `_meta`
+
+### Mã lỗi (`code`)
+
+| code | Ý nghĩa |
+|------|---------|
+| `REQUIRED` | Cột bắt buộc bị trống |
+| `INVALID_CATEGORY` | Danh mục không khớp (VD: Địa chỉ) |
+| `INVALID_MULTI_CATEGORY` | Một phần danh mục nhiều giá trị không hợp lệ |
+| `INVALID_INTEGER` | Không phải số nguyên |
+| `INVALID_MONEY` | Không phải số tiền |
+| `INVALID_MEASUREMENT` | Không phải số đo |
+| `INVALID_QUANTITY` | Không parse được (VD: `351 tấn`) |
+| `INVALID_LAT_LNG` | Sai định dạng tọa độ |
+| `DUPLICATE` | Trùng bản ghi (chỉ khi execute, không chặn import) |
+
+## Execute response
+
+**Chặn import** nếu `canImport === false` (HTTP 400):
+
+```json
+{
+  "statusCode": 400,
+  "message": {
+    "code": "IMPORT_VALIDATION_FAILED",
+    "message": "Không thể import vì file còn lỗi. Sửa Excel theo danh sách errors rồi upload lại.",
+    "totalRows": 13,
+    "validRows": 11,
+    "errorRows": 2,
+    "canImport": false,
+    "errors": [ "... same as preview ..." ]
+  }
+}
+```
+
+**Thành công** (`canImport === true`):
+
+```json
+{
+  "importId": "uuid.xlsx",
+  "layerId": "...",
+  "processed": 13,
+  "created": 12,
+  "duplicates": 1,
+  "total": 13,
+  "canImport": true,
+  "validRows": 12,
+  "errorRows": 0,
+  "errors": [],
+  "duplicateRows": [
+    {
+      "rowNumber": 6,
+      "field": "ten_mo_hinh",
+      "fieldLabel": "Tên mô hình",
+      "rawValue": "HTX ABC",
+      "code": "DUPLICATE",
+      "message": "Dòng 6: bản ghi đã tồn tại (trùng Tên mô hình). Bản ghi này đã bỏ qua."
+    }
+  ],
+  "message": "Import xong: 12 bản ghi mới, 1 dòng trùng đã bỏ qua."
+}
+```
+
+- **Trùng lặp:** so theo field text bắt buộc đầu tiên — bỏ qua dòng trùng, vẫn import các dòng còn lại
+- User **phải sửa file Excel và upload lại** khi preview có `canImport: false`
+- **Schema đổi** sau khi tải mẫu → preview/execute trả lỗi, cần tải mẫu mới
+- **File sai layer:** upload từ chối nếu `layerId` trong `_meta` không khớp
+
+## API import cũ (legacy)
+
+Vẫn tồn tại cho file Long Bình nhiều sheet (cần `import_templates` trong DB + Redis):
+
+| Method | Path |
+|--------|------|
+| GET | `/api/imports/templates` |
+| POST | `/api/imports/upload` |
+| POST | `/api/imports/:importId/preview` body `{ "templateCode": "htx" }` |
+| POST | `/api/imports/:importId/execute` |
+
+**Khuyến nghị FE:** dùng luồng **layer import** ở màn bảng dữ liệu từng lớp.
+
+## Tham chiếu
+
+- [import-excel-long-binh.md](../appendix/import-excel-long-binh.md) — file Excel tổng hợp cũ (legacy)
+- [field-types.md](../appendix/field-types.md)
