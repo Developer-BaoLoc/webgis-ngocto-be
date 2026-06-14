@@ -168,7 +168,16 @@ export class MetadataService {
       'Schema ban đầu',
     );
 
-    return this.toLayerDetail(layer, draft.id);
+    await this.publishSchema(tenantId, draft.id, userId, { allowEmpty: true });
+
+    const publishedLayer = await this.layersRepository.findOne({
+      where: { id: layer.id, tenantId },
+    });
+    if (!publishedLayer) {
+      throw new NotFoundException('Layer không tồn tại');
+    }
+
+    return this.enrichLayerDetail(tenantId, publishedLayer);
   }
 
   async updateLayer(tenantId: string, layerId: string, dto: UpdateLayerDto) {
@@ -228,42 +237,116 @@ export class MetadataService {
     return this.enrichLayerDetail(tenantId, layer);
   }
 
-  async deleteLayer(tenantId: string, layerId: string, userId: string) {
-    const layer = await this.findLayer(tenantId, layerId, false);
+  async deleteLayer(tenantId: string, layerId: string, _userId: string) {
+    await this.findLayer(tenantId, layerId, false);
 
     return this.dataSource.transaction(async (manager) => {
       const countRows = await manager.query(
         `SELECT COUNT(*)::int AS cnt FROM features
-         WHERE tenant_id = $1 AND layer_id = $2 AND deleted_at IS NULL`,
+         WHERE tenant_id = $1 AND layer_id = $2`,
         [tenantId, layerId],
       );
       const recordsDeleted = countRows[0]?.cnt ?? 0;
 
-      if (recordsDeleted > 0) {
-        await manager.query(
-          `DELETE FROM feature_relations
-           WHERE tenant_id = $1
-           AND (
-             source_feature_id IN (
-               SELECT id FROM features WHERE tenant_id = $1 AND layer_id = $2
-             )
-             OR target_feature_id IN (
-               SELECT id FROM features WHERE tenant_id = $1 AND layer_id = $2
-             )
-           )`,
-          [tenantId, layerId],
-        );
+      await manager.query(
+        `DELETE FROM feature_relations
+         WHERE tenant_id = $1
+         AND (
+           relation_definition_id IN (
+             SELECT id FROM relation_definitions
+             WHERE tenant_id = $1
+             AND (source_layer_id = $2 OR target_layer_id = $2)
+           )
+           OR source_feature_id IN (
+             SELECT id FROM features WHERE tenant_id = $1 AND layer_id = $2
+           )
+           OR target_feature_id IN (
+             SELECT id FROM features WHERE tenant_id = $1 AND layer_id = $2
+           )
+         )`,
+        [tenantId, layerId],
+      );
 
-        await manager.query(
-          `UPDATE features
-           SET deleted_at = NOW(), deleted_by = $3
-           WHERE tenant_id = $1 AND layer_id = $2 AND deleted_at IS NULL`,
-          [tenantId, layerId, userId],
-        );
-      }
+      await manager.query(
+        `DELETE FROM features WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
 
-      layer.isActive = false;
-      await manager.getRepository(LayerEntity).save(layer);
+      await manager.query(
+        `DELETE FROM relation_definitions
+         WHERE tenant_id = $1 AND (source_layer_id = $2 OR target_layer_id = $2)`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM import_template_targets
+         WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `UPDATE import_templates SET root_layer_id = NULL
+         WHERE tenant_id = $1 AND root_layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM schema_migration_jobs
+         WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM datasets WHERE tenant_id = $1 AND source_layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM layer_permissions WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM schema_field_versions WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `UPDATE layers SET current_schema_version_id = NULL
+         WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM layer_schema_versions WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM fields WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM layer_views WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM layer_map_styles WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `UPDATE role_assignments SET layer_id = NULL
+         WHERE tenant_id = $1 AND layer_id = $2`,
+        [tenantId, layerId],
+      );
+
+      await manager.query(
+        `DELETE FROM layers WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, layerId],
+      );
 
       return { id: layerId, deleted: true, recordsDeleted };
     });
@@ -378,14 +461,19 @@ export class MetadataService {
     return this.getSchemaById(tenantId, schema.layerId, schema.id);
   }
 
-  async publishSchema(tenantId: string, schemaId: string, userId: string) {
+  async publishSchema(
+    tenantId: string,
+    schemaId: string,
+    userId: string,
+    options?: { allowEmpty?: boolean },
+  ) {
     const schema = await this.findDraftSchema(tenantId, schemaId);
     const layer = await this.findLayer(tenantId, schema.layerId, false);
 
     const activeFields = await this.schemaFieldsRepository.count({
       where: { schemaVersionId: schema.id, isActive: true },
     });
-    if (activeFields === 0) {
+    if (activeFields === 0 && !options?.allowEmpty) {
       throw new BadRequestException('Schema draft phải có ít nhất 1 field');
     }
 
@@ -418,7 +506,11 @@ export class MetadataService {
     userId: string,
     dto: CreateFieldDto,
   ) {
-    const schema = await this.findDraftSchema(tenantId, schemaId);
+    const schema = await this.resolveDraftSchemaForEdit(
+      tenantId,
+      schemaId,
+      userId,
+    );
     const code = await generateUniqueFieldCode(
       this.fieldsRepository,
       schema.layerId,
@@ -474,7 +566,11 @@ export class MetadataService {
     userId: string,
     dto: UpdateFieldDto,
   ) {
-    const schema = await this.findDraftSchema(tenantId, schemaId);
+    const schema = await this.resolveDraftSchemaForEdit(
+      tenantId,
+      schemaId,
+      userId,
+    );
     const schemaField = await this.schemaFieldsRepository.findOne({
       where: { schemaVersionId: schema.id, fieldId, layerId: schema.layerId },
     });
@@ -510,7 +606,11 @@ export class MetadataService {
     userId: string,
     fieldIds: string[],
   ) {
-    const schema = await this.findDraftSchema(tenantId, schemaId);
+    const schema = await this.resolveDraftSchemaForEdit(
+      tenantId,
+      schemaId,
+      userId,
+    );
     const fields = await this.schemaFieldsRepository.find({
       where: {
         schemaVersionId: schema.id,
@@ -561,7 +661,11 @@ export class MetadataService {
     fieldId: string,
     userId: string,
   ) {
-    const schema = await this.findDraftSchema(tenantId, schemaId);
+    const schema = await this.resolveDraftSchemaForEdit(
+      tenantId,
+      schemaId,
+      userId,
+    );
     const schemaField = await this.schemaFieldsRepository.findOne({
       where: { schemaVersionId: schema.id, fieldId },
     });
@@ -579,7 +683,12 @@ export class MetadataService {
     schemaId: string,
     userId: string,
   ) {
-    return this.publishSchema(tenantId, schemaId, userId);
+    const activeFields = await this.schemaFieldsRepository.count({
+      where: { schemaVersionId: schemaId, isActive: true },
+    });
+    return this.publishSchema(tenantId, schemaId, userId, {
+      allowEmpty: activeFields === 0,
+    });
   }
 
   async getSchemaFieldsForVersion(schemaVersionId: string, layerId: string) {
@@ -597,7 +706,7 @@ export class MetadataService {
     const input: Record<string, unknown> = { ...style };
 
     const attachmentId = String(style.iconAttachmentId ?? '').trim();
-    if (geometryType === 'point' && attachmentId) {
+    if (attachmentId) {
       const attachment = await this.assetsService.getAttachment(
         tenantId,
         attachmentId,
@@ -626,16 +735,34 @@ export class MetadataService {
     }
 
     if (stored.geometryType === 'line') {
-      return {
+      const base = {
         lineColor: stored.lineColor,
         lineWidth: stored.lineWidth,
       };
+      if (!stored.icon) return base;
+      if (stored.icon.source === 'upload') {
+        return {
+          ...base,
+          iconAttachmentId: stored.icon.attachmentId,
+          iconUrl: stored.icon.url,
+        };
+      }
+      return { ...base, icon: stored.icon.name };
     }
 
-    return {
+    const base = {
       fillColor: stored.fillColor,
       strokeColor: stored.strokeColor,
     };
+    if (!stored.icon) return base;
+    if (stored.icon.source === 'upload') {
+      return {
+        ...base,
+        iconAttachmentId: stored.icon.attachmentId,
+        iconUrl: stored.icon.url,
+      };
+    }
+    return { ...base, icon: stored.icon.name };
   }
 
   private async createSchemaDraftInternal(
@@ -753,6 +880,46 @@ export class MetadataService {
     return schema;
   }
 
+  /**
+   * Cho phép thêm/sửa field qua schemaId draft hoặc published (current).
+   * Nếu là published → tự tạo draft copy trước khi chỉnh.
+   */
+  private async resolveDraftSchemaForEdit(
+    tenantId: string,
+    schemaId: string,
+    userId: string,
+  ) {
+    const schema = await this.schemaVersionsRepository.findOne({
+      where: { id: schemaId, tenantId },
+    });
+    if (!schema) {
+      throw new NotFoundException('Schema không tồn tại');
+    }
+
+    if (schema.status === 'draft') {
+      return schema;
+    }
+
+    if (schema.status === 'published') {
+      const existingDraft = await this.schemaVersionsRepository.findOne({
+        where: { tenantId, layerId: schema.layerId, status: 'draft' },
+        order: { version: 'DESC' },
+      });
+      if (existingDraft) {
+        return existingDraft;
+      }
+
+      return this.createSchemaDraftInternal(
+        tenantId,
+        schema.layerId,
+        userId,
+        'Draft từ published schema',
+      );
+    }
+
+    throw new BadRequestException('Schema không thể chỉnh sửa');
+  }
+
   private async findLayer(
     tenantId: string,
     layerId: string,
@@ -790,12 +957,19 @@ export class MetadataService {
   }
 
   private toLayerDetail(layer: LayerEntity, draftSchemaId: string | null = null) {
+    const schemaStatus = layer.currentSchemaVersionId
+      ? draftSchemaId
+        ? 'draft'
+        : 'published'
+      : 'draft';
+
     return {
       ...this.toLayerSummary(layer),
       renderMode: layer.renderMode,
       isActive: layer.isActive,
       currentSchemaVersionId: layer.currentSchemaVersionId,
       draftSchemaId,
+      schemaStatus,
     };
   }
 

@@ -21,9 +21,9 @@ Metadata-driven layer catalog, CRUD layer/field, schema draft → publish.
 | Method | Path | Auth | Mô tả |
 |--------|------|------|-------|
 | GET | `/api/layers/admin` | JWT | Tất cả layers (kể cả inactive) |
-| POST | `/api/layers` | JWT | Tạo layer + draft schema v1 |
+| POST | `/api/layers` | JWT | Tạo layer + **tự publish** schema v1 (rỗng) |
 | PATCH | `/api/layers/:layerId` | JWT | Cập nhật layer |
-| DELETE | `/api/layers/:layerId` | JWT | Soft delete layer + toàn bộ bản ghi trong layer |
+| DELETE | `/api/layers/:layerId` | JWT | **Xóa hẳn** layer + schema + toàn bộ bản ghi liên quan |
 
 ### POST — Tạo layer
 
@@ -32,8 +32,8 @@ Metadata-driven layer catalog, CRUD layer/field, schema draft → publish.
 | `geometryType` | Label | Style bắt buộc |
 |----------------|-------|----------------|
 | `point` | Điểm | Upload icon → `style.iconAttachmentId` |
-| `line` | Đường | `style.lineColor`, `style.lineWidth` |
-| `polygon` | Vùng | `style.fillColor`, `style.strokeColor` |
+| `line` | Đường | Upload icon + `style.lineColor`, `style.lineWidth` |
+| `polygon` | Vùng | Upload icon + `style.fillColor`, `style.strokeColor` |
 
 ```json
 {

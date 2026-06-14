@@ -18,25 +18,27 @@ export const GEOMETRY_KIND_TO_TYPE: Record<string, LayerGeometryType | null> = {
   none: null,
 };
 
-export type PointLayerIcon =
+export type LayerIcon =
   | { source: 'preset'; name: string }
   | { source: 'upload'; attachmentId: string; url: string };
 
 export type PointLayerStyle = {
   geometryType: 'point';
-  icon: PointLayerIcon;
+  icon: LayerIcon;
 };
 
 export type LineLayerStyle = {
   geometryType: 'line';
   lineColor: string;
   lineWidth: number;
+  icon: LayerIcon;
 };
 
 export type PolygonLayerStyle = {
   geometryType: 'polygon';
   fillColor: string;
   strokeColor: string;
+  icon: LayerIcon;
 };
 
 export type LayerStyleConfig =
@@ -63,6 +65,12 @@ export const LAYER_GEOMETRY_TYPE_CATALOG = [
     label: 'Đường',
     geometryKind: 'linestring',
     styleFields: [
+      {
+        key: 'iconAttachmentId',
+        label: 'Icon (upload)',
+        type: 'icon_upload',
+        uploadEndpoint: '/api/assets/layer-icons/upload',
+      },
       { key: 'lineColor', label: 'Màu đường', type: 'color' },
       { key: 'lineWidth', label: 'Kích thước đường', type: 'number' },
     ],
@@ -72,6 +80,12 @@ export const LAYER_GEOMETRY_TYPE_CATALOG = [
     label: 'Vùng',
     geometryKind: 'polygon',
     styleFields: [
+      {
+        key: 'iconAttachmentId',
+        label: 'Icon (upload)',
+        type: 'icon_upload',
+        uploadEndpoint: '/api/assets/layer-icons/upload',
+      },
       { key: 'fillColor', label: 'Màu vùng', type: 'color' },
       { key: 'strokeColor', label: 'Màu viền vùng', type: 'color' },
     ],

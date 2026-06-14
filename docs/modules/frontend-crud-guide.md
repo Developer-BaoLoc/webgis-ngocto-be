@@ -16,7 +16,7 @@ Base URL: `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`
 | **Dashboard** | ✅ Builder MVP | Draft/publish + analytics query |
 | **Import Excel** | ✅ Theo layer | Tải mẫu schema → điền → import |
 
-**Layers không còn seed sẵn** — admin tạo layer qua API rồi thêm fields (BE **tự xuất bản** sau mỗi lần thêm/sửa/xóa/sắp xếp trường).
+**Layers không còn seed sẵn** — admin tạo layer qua API (BE **tự publish** schema rỗng), rồi thêm fields (BE **tự publish** sau mỗi lần thêm/sửa/xóa/sắp xếp trường).
 
 ## 2. Auth (bắt buộc trước mọi thao tác admin)
 
@@ -376,6 +376,7 @@ GET /api/metadata/field-types
       "label": "Đường",
       "geometryKind": "linestring",
       "styleFields": [
+        { "key": "iconAttachmentId", "label": "Icon (upload)", "type": "icon_upload" },
         { "key": "lineColor", "label": "Màu đường", "type": "color" },
         { "key": "lineWidth", "label": "Kích thước đường", "type": "number" }
       ]
@@ -385,6 +386,7 @@ GET /api/metadata/field-types
       "label": "Vùng",
       "geometryKind": "polygon",
       "styleFields": [
+        { "key": "iconAttachmentId", "label": "Icon (upload)", "type": "icon_upload" },
         { "key": "fillColor", "label": "Màu vùng", "type": "color" },
         { "key": "strokeColor", "label": "Màu viền vùng", "type": "color" }
       ]
@@ -393,7 +395,7 @@ GET /api/metadata/field-types
 }
 ```
 
-### Bước 2 — Upload icon (lớp điểm)
+### Bước 2 — Upload icon (mọi loại lớp: điểm / đường / vùng)
 
 ```
 POST /api/assets/layer-icons/upload
@@ -460,7 +462,7 @@ POST /api/layers
 }
 ```
 
-**Response** gồm `code` (BE sinh), `geometryType`, `style`, `draftSchemaId`:
+**Response** gồm `code` (BE sinh), `geometryType`, `style`, `currentSchemaVersionId`, `schemaStatus`:
 
 ```json
 {
@@ -479,25 +481,36 @@ POST /api/layers
       }
     },
     "sortOrder": 1,
-    "draftSchemaId": "uuid"
+    "currentSchemaVersionId": "uuid",
+    "draftSchemaId": null,
+    "schemaStatus": "published"
   }
 }
 ```
 
-### Bước 3 — Thêm fields vào draft
+> BE **tự publish** schema rỗng v1 ngay khi tạo layer — không còn trạng thái “bản nháp chưa xuất bản”.
 
-Dùng `draftSchemaId` từ layer (`POST /api/layers`, `GET /api/layers/admin`, `GET /api/layers/:layerId` đều trả field này).
+### Bước 3 — Thêm fields
 
-Hoặc lấy draft theo layer:
+Dùng `currentSchemaVersionId` (hoặc `draftSchemaId` nếu layer đang có draft chỉnh sửa) làm `schemaId`:
 
 ```
+POST /api/schema-drafts/:schemaId/fields
+```
+
+BE tự tạo draft từ published nếu cần, rồi **tự publish** sau khi thêm/sửa/xóa/sắp xếp trường.
+
+Hoặc lấy schema theo layer:
+
+```
+GET /api/layers/:layerId/schema
 GET /api/layers/:layerId/schema/draft
 GET /api/schema-drafts/:schemaId
 ```
 
 Response schema có `id` (= `schemaVersionId`) và `fields`.
 
-Nếu layer cũ chưa có draft → `POST /api/layers/:layerId/schema/drafts`.
+Nếu layer cũ chưa có draft khi muốn chỉnh → `POST /api/layers/:layerId/schema/drafts`.
 
 ```
 POST /api/schema-drafts/:schemaId/fields
@@ -870,13 +883,15 @@ PATCH /api/layers/:layerId
 DELETE /api/layers/:layerId
 ```
 
-Soft delete layer. Nếu layer còn bản ghi, BE **tự soft-delete toàn bộ records** trong layer rồi mới ẩn layer.
+**Xóa hẳn** layer khỏi database (không còn trạng thái “không hoạt động”). BE xóa luôn schema, fields, bản ghi, quan hệ, dataset analytics liên quan.
 
 Response:
 
 ```json
 { "data": { "id": "uuid", "deleted": true, "recordsDeleted": 2 } }
 ```
+
+> Hành động **không thể hoàn tác**. Muốn tạm ẩn layer khỏi catalog public → dùng `PATCH /api/layers/:layerId` với `{ "isActive": false }`.
 
 ### Bảng dữ liệu (có phân trang)
 
@@ -1145,7 +1160,7 @@ const layerRes = await fetch(`${API}/layers`, {
   }),
 });
 const { data: layer } = await layerRes.json();
-const schemaId = layer.draftSchemaId;
+const schemaId = layer.currentSchemaVersionId ?? layer.draftSchemaId;
 
 // 4. Tạo danh mục + fields
 const dictRes = await fetch(`${API}/dictionaries`, {
@@ -1169,10 +1184,7 @@ for (const [i, f] of fields.entries()) {
   });
 }
 
-// 5. Publish
-await fetch(`${API}/schema-drafts/${schemaId}/publish`, { method: 'POST', headers: h });
-
-// 6. Tạo record
+// 5. Tạo record (BE đã tự publish schema sau mỗi field)
 await fetch(`${API}/layers/${layer.id}/records`, {
   method: 'POST', headers: h,
   body: JSON.stringify({
