@@ -1,104 +1,295 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# GIS Long Bình — Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Hệ thống GIS metadata-driven cho **phường/xã** — NestJS + PostgreSQL/PostGIS + Redis + MinIO.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Một codebase có thể phục vụ nhiều phường: chỉ cần đổi biến môi trường và database riêng, không cần copy GeoJSON ranh giới theo từng phường (file `can-tho.geojson` chứa 103 phường/xã Cần Thơ).
 
-## Description
+**Tài liệu chi tiết**
 
-Hệ thống GIS metadata-driven cho **phường Long Bình, Cần Thơ** — NestJS + PostgreSQL/PostGIS.
+| Tài liệu | Mô tả |
+|----------|--------|
+| [docs/PROJECT.md](./docs/PROJECT.md) | Tổng quan, khái niệm, luồng frontend |
+| [docs/modules/](./docs/modules/) | API từng module |
+| [docs/phases/phase-0-foundation.md](./docs/phases/phase-0-foundation.md) | Phase 0 — Foundation |
+| [data/ward-boundaries/README.md](./data/ward-boundaries/README.md) | Cấu hình ranh giới phường |
 
-**Tài liệu dự án (đọc trước):** [docs/PROJECT.md](./docs/PROJECT.md) — tổng quan, khái niệm, luồng frontend.
+---
 
-**API từng module:** [docs/modules/](./docs/modules/)
+## Yêu cầu
 
-Bắt đầu tại [Phase 0 — Foundation](./docs/phases/phase-0-foundation.md).
+- Node.js 20+
+- Yarn
+- Docker & Docker Compose (PostgreSQL/PostGIS, Redis, MinIO)
+- `psql` (client PostgreSQL) — dùng cho migration
 
-## Project setup
+---
+
+## Setup local (lần đầu)
+
+### 1. Clone và cài dependency
 
 ```bash
-$ yarn install
+git clone <repo-url> gis_longbinh
+cd gis_longbinh
+yarn install
 ```
 
-## Compile and run the project
+### 2. Cấu hình môi trường
 
 ```bash
-# development
-$ yarn run start
-
-# watch mode
-$ yarn run start:dev
-
-# production mode
-$ yarn run start:prod
+cp .env.example .env
 ```
 
-## Run tests
+Chỉnh `.env` theo phường triển khai. Mặc định repo này trỏ **Phường Long Bình, Cần Thơ**:
+
+```env
+WARD_NAME=Long Bình
+WARD_CODE=long-binh
+WARD_BOUNDARY_DATASET=can-tho.geojson
+WARD_BOUNDARY_ADMIN_CODE=31473
+```
+
+Xem đầy đủ biến trong [.env.example](./.env.example).
+
+### 3. Khởi động hạ tầng
 
 ```bash
-# unit tests
-$ yarn run test
-
-# e2e tests
-$ yarn run test:e2e
-
-# test coverage
-$ yarn run test:cov
+yarn db:up
 ```
 
-## Deployment
+Services:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+| Service | Port | Ghi chú |
+|---------|------|---------|
+| PostgreSQL + PostGIS | 5434 | DB `gis_longbinh` |
+| Redis | 6379 | BullMQ queue |
+| MinIO | 9000 (API), 9001 (console) | Object storage |
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Đợi Postgres sẵn sàng (~10s), rồi chạy migration:
 
 ```bash
-$ yarn install -g @nestjs/mau
-$ mau deploy
+yarn db:migrate
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 4. Seed dữ liệu dev (Long Bình)
 
-## Resources
+Chỉ dùng khi setup **Phường Long Bình** — tạo tenant, user admin, lớp dữ liệu mẫu:
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+yarn db:seed
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Tài khoản dev (sau seed):
 
-## Support
+- Email: `admin@longbinh.local`
+- Password: `Admin@123`
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+> **Phường khác:** không chạy `db:seed`. Tạo tenant/user/lớp qua API hoặc SQL riêng; cập nhật `DEFAULT_TENANT_ID` trong `.env`.
 
-## Stay in touch
+### 5. Chạy API
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```bash
+# development (watch)
+yarn start:dev
+
+# production build
+yarn build && yarn start:prod
+```
+
+API prefix: `/api` — mặc định `http://localhost:4000/api`.
+
+Kiểm tra nhanh:
+
+```bash
+curl -s http://localhost:4000/api/metadata/map-view | jq
+curl -s http://localhost:4000/api/layers/administrative-boundary | jq '.type'
+```
+
+---
+
+## Triển khai phường/xã khác
+
+1. **Database riêng** — đổi `DATABASE_NAME`, `DATABASE_URL` (và tên bucket MinIO nếu cần).
+2. **Cập nhật `.env`** — ví dụ phường An Khánh:
+
+```env
+DATABASE_NAME=gis_an_khanh
+DATABASE_URL=postgresql://postgres:postgres@localhost:5434/gis_an_khanh
+MINIO_BUCKET=gis-an-khanh
+
+WARD_NAME=An Khánh
+WARD_CODE=an-khanh
+WARD_DISTRICT=Ninh Kiều
+WARD_PROVINCE=Cần Thơ
+WARD_BOUNDARY_DATASET=can-tho.geojson
+WARD_BOUNDARY_ADMIN_CODE=<ma_xa trong GeoJSON>
+DEFAULT_TENANT_ID=<uuid tenant mới>
+```
+
+3. **GeoJSON** — đặt file tỉnh vào `data/ward-boundaries/` (vd. `can-tho.geojson`). Tra `ma_xa` / `ten_xa` trong properties của feature.
+4. **Migration** — `yarn db:migrate` (không seed Long Bình).
+5. **Restart API** — BE tự tính `center`, `bounds` từ geometry ranh giới.
+
+Chi tiết: [data/ward-boundaries/README.md](./data/ward-boundaries/README.md).
+
+---
+
+## Deploy lên server
+
+### Chuẩn bị server
+
+- Ubuntu 22.04+ (hoặc tương đương)
+- Docker Compose cho Postgres/Redis/MinIO **hoặc** dịch vụ managed riêng
+- Reverse proxy (Nginx/Caddy) + HTTPS
+- Process manager: **systemd** hoặc **PM2**
+
+### 1. Clone và build
+
+```bash
+git clone <repo-url> /opt/gis_longbinh
+cd /opt/gis_longbinh
+yarn install --frozen-lockfile
+yarn build
+```
+
+### 2. File `.env` production
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+Bắt buộc đổi trên production:
+
+```env
+NODE_ENV=production
+PORT=4000
+
+JWT_SECRET=<chuỗi-ngẫu-nhiên-dài>
+DATABASE_URL=postgresql://<user>:<pass>@<host>:5432/<db>
+REDIS_HOST=<redis-host>
+MINIO_ENDPOINT=<minio-host>
+MINIO_ACCESS_KEY=<key>
+MINIO_SECRET_KEY=<secret>
+MINIO_BUCKET=<bucket-theo-phuong>
+
+# Phường triển khai
+WARD_NAME=...
+WARD_BOUNDARY_DATASET=can-tho.geojson
+WARD_BOUNDARY_ADMIN_CODE=...
+DEFAULT_TENANT_ID=...
+```
+
+Không commit `.env` lên git.
+
+### 3. Database
+
+Trên server có Postgres + PostGIS:
+
+```bash
+# Tạo DB (một lần)
+psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+yarn db:migrate
+# Chỉ seed Long Bình nếu đúng tenant đó:
+# yarn db:seed
+```
+
+Nếu dùng Docker trên cùng máy:
+
+```bash
+docker compose up -d
+sleep 10
+yarn db:migrate
+```
+
+### 4. Chạy bằng systemd
+
+`/etc/systemd/system/gis-api.service`:
+
+```ini
+[Unit]
+Description=GIS Backend API
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/gis_longbinh
+EnvironmentFile=/opt/gis_longbinh/.env
+ExecStart=/usr/bin/node dist/main.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now gis-api
+sudo systemctl status gis-api
+```
+
+### 5. Nginx reverse proxy
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name gis.example.com;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 50M;
+    }
+}
+```
+
+Frontend (repo riêng) trỏ `VITE_API_URL` (hoặc tương đương) tới `https://gis.example.com/api`.
+
+### 6. Cập nhật phiên bản
+
+```bash
+cd /opt/gis_longbinh
+git pull
+yarn install --frozen-lockfile
+yarn build
+yarn db:migrate
+sudo systemctl restart gis-api
+```
+
+---
+
+## Scripts hữu ích
+
+| Lệnh | Mô tả |
+|------|--------|
+| `yarn db:up` | Docker: Postgres, Redis, MinIO |
+| `yarn db:migrate` | Chạy migration SQL |
+| `yarn db:seed` | Seed Long Bình (dev) |
+| `yarn db:reset` | Xóa volume Docker + migrate lại |
+| `yarn start:dev` | API watch mode |
+| `yarn build` | Build production → `dist/` |
+| `yarn test` | Unit tests |
+
+---
+
+## Cấu trúc thư mục chính
+
+```
+src/                    # NestJS source
+migrations/             # SQL schema + seed
+data/ward-boundaries/   # GeoJSON ranh giới (theo tỉnh)
+docs/                   # Tài liệu dự án
+docker-compose.yml      # Dev infrastructure
+```
+
+---
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+UNLICENSED — private project.
