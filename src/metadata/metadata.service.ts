@@ -33,7 +33,10 @@ import {
   generateUniqueLayerCode,
   parseStoredStyleConfig,
 } from './utils/layer-code.util';
-import { generateUniqueFieldCode } from './utils/field-code.util';
+import {
+  generateUniqueFieldCode,
+  slugifyFieldCode,
+} from './utils/field-code.util';
 import {
   resolveDictionaryCode,
   validateFieldDataSchema,
@@ -53,6 +56,14 @@ export type LayerSummary = {
   sortOrder: number;
   style: ReturnType<typeof parseStoredStyleConfig>;
   endpoint: string;
+};
+
+export type ImportSchemaFieldInput = {
+  code: string;
+  label: string;
+  fieldType: string;
+  required?: boolean;
+  dataSchema?: Record<string, unknown>;
 };
 
 @Injectable()
@@ -559,6 +570,110 @@ export class MetadataService {
     return this.autoPublishDraftAfterFieldChange(tenantId, schema.id, userId);
   }
 
+  async addFieldsToLayerSchema(
+    tenantId: string,
+    layerId: string,
+    userId: string,
+    inputs: ImportSchemaFieldInput[],
+  ) {
+    if (inputs.length === 0) {
+      return this.getPublishedSchema(tenantId, layerId);
+    }
+
+    const layer = await this.findLayer(tenantId, layerId, false);
+    if (!layer.currentSchemaVersionId) {
+      throw new BadRequestException('Layer chưa có schema published');
+    }
+
+    const schema = await this.resolveDraftSchemaForEdit(
+      tenantId,
+      layer.currentSchemaVersionId,
+      userId,
+    );
+    const currentFields = await this.schemaFieldsRepository.find({
+      where: { schemaVersionId: schema.id, layerId, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+    const existingCodes = new Set(currentFields.map((field) => field.code));
+    const nextFields = inputs.map((input) => {
+      const code = slugifyFieldCode(input.code || input.label);
+      if (!code) {
+        throw new BadRequestException('Field code không hợp lệ');
+      }
+      if (existingCodes.has(code)) {
+        throw new ConflictException(`Field code đã tồn tại: ${code}`);
+      }
+      existingCodes.add(code);
+
+      return {
+        ...input,
+        code,
+        label: input.label?.trim() || code,
+        dataSchema: {
+          ...(input.dataSchema ?? {}),
+          ...(input.required !== undefined
+            ? { required: input.required }
+            : {}),
+        },
+      };
+    });
+
+    for (const field of nextFields) {
+      await this.assertFieldDataSchema(tenantId, field.fieldType, field.dataSchema);
+    }
+
+    const storageKeyRows = await this.fieldsRepository.find({
+      where: { layerId, storageKey: In(nextFields.map((field) => field.code)) },
+      select: { storageKey: true },
+    });
+    if (storageKeyRows.length > 0) {
+      throw new ConflictException(
+        `Field code đã tồn tại trong layer: ${storageKeyRows
+          .map((field) => field.storageKey)
+          .join(', ')}`,
+      );
+    }
+
+    let nextSortOrder =
+      currentFields.reduce(
+        (max, field) => Math.max(max, field.sortOrder ?? 0),
+        0,
+      ) + 1;
+
+    await this.dataSource.transaction(async (manager) => {
+      for (const fieldInput of nextFields) {
+        const field = await manager.save(
+          FieldEntity,
+          this.fieldsRepository.create({
+            layerId,
+            tenantId,
+            storageKey: fieldInput.code,
+          }),
+        );
+
+        await manager.save(
+          SchemaFieldVersionEntity,
+          this.schemaFieldsRepository.create({
+            schemaVersionId: schema.id,
+            fieldId: field.id,
+            layerId,
+            tenantId,
+            code: fieldInput.code,
+            label: fieldInput.label,
+            fieldType: fieldInput.fieldType,
+            dataSchema: fieldInput.dataSchema,
+            uiSchema: {},
+            displaySchema: {},
+            sortOrder: nextSortOrder,
+          }),
+        );
+        nextSortOrder += 1;
+      }
+    });
+
+    return this.publishSchema(tenantId, schema.id, userId);
+  }
+
   async updateFieldInDraft(
     tenantId: string,
     schemaId: string,
@@ -705,6 +820,13 @@ export class MetadataService {
   ): Promise<Record<string, unknown>> {
     const input: Record<string, unknown> = { ...style };
 
+    if (geometryType !== 'point') {
+      delete input.icon;
+      delete input.iconAttachmentId;
+      delete input.iconUrl;
+      return input;
+    }
+
     const attachmentId = String(style.iconAttachmentId ?? '').trim();
     if (attachmentId) {
       const attachment = await this.assetsService.getAttachment(
@@ -725,6 +847,7 @@ export class MetadataService {
 
     if (stored.geometryType === 'point') {
       const icon = stored.icon;
+      if (!icon) return {};
       if (icon.source === 'upload') {
         return {
           iconAttachmentId: icon.attachmentId,
@@ -735,34 +858,16 @@ export class MetadataService {
     }
 
     if (stored.geometryType === 'line') {
-      const base = {
+      return {
         lineColor: stored.lineColor,
         lineWidth: stored.lineWidth,
       };
-      if (!stored.icon) return base;
-      if (stored.icon.source === 'upload') {
-        return {
-          ...base,
-          iconAttachmentId: stored.icon.attachmentId,
-          iconUrl: stored.icon.url,
-        };
-      }
-      return { ...base, icon: stored.icon.name };
     }
 
-    const base = {
+    return {
       fillColor: stored.fillColor,
       strokeColor: stored.strokeColor,
     };
-    if (!stored.icon) return base;
-    if (stored.icon.source === 'upload') {
-      return {
-        ...base,
-        iconAttachmentId: stored.icon.attachmentId,
-        iconUrl: stored.icon.url,
-      };
-    }
-    return { ...base, icon: stored.icon.name };
   }
 
   private async createSchemaDraftInternal(

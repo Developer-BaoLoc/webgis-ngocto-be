@@ -11,11 +11,21 @@ import { DictionariesService } from '../dictionaries/dictionaries.service';
 import { RecordsService } from '../records/records.service';
 import { DictionaryItemEntity } from '../database/entities/dictionary.entity';
 import {
+  buildImportColumns,
   buildTemplateFileName,
   generateLayerImportWorkbook,
 } from './layer-excel.generator';
-import { parseLayerImportWorkbook } from './layer-excel.parser';
-import { LAYER_EXCEL_STT_CODE } from './layer-excel.constants';
+import {
+  estimateLayerImportWorkbookRowCount,
+  inspectLayerImportWorkbookColumns,
+  parseLayerImportWorkbook,
+  parseLayerImportWorkbookWithMeta,
+} from './layer-excel.parser';
+import {
+  LAYER_EXCEL_FORMAT_VERSION,
+  LAYER_EXCEL_STT_CODE,
+} from './layer-excel.constants';
+import { LayerExcelMeta, LayerExcelParsedRow } from './layer-excel.types';
 import { IMPORT_ERROR_CODES, LayerImportError } from './layer-import.errors';
 import {
   augmentDictionaryItemsWithVirtualLabels,
@@ -26,6 +36,11 @@ import {
 } from './layer-import-normalizer';
 import { findMissingCategoryLabels } from './import-normalizer';
 import { generateUniqueCodeInSet } from '../metadata/utils/layer-code.util';
+import { ImportNewFieldsDto } from './dto/import-new-field.dto';
+import {
+  buildImportColumnAnalysis,
+  ImportColumnAnalysis,
+} from './import-column-discovery';
 
 type DictionaryItemsCreated = {
   dictionaryCode: string;
@@ -109,7 +124,11 @@ export class LayerImportService {
     layerId: string,
     file: Express.Multer.File,
   ) {
-    await this.metadataService.getLayerById(tenantId, layerId);
+    const layer = await this.metadataService.getLayerById(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
 
     if (!file) {
       throw new BadRequestException('Thiếu file Excel');
@@ -120,22 +139,39 @@ export class LayerImportService {
     fs.writeFileSync(filePath, file.buffer);
 
     try {
-      const { meta, rows } = parseLayerImportWorkbook(filePath, 1);
+      const columnAnalysis = this.analyzeImportColumns(filePath, schema);
+      const { meta } = this.parseImportWorkbook(filePath, { layer, schema }, 1);
       if (meta.layerId !== layerId) {
         throw new BadRequestException(
           'File mẫu không thuộc lớp dữ liệu này. Hãy tải lại file mẫu đúng lớp.',
         );
       }
 
-      const parsedAll = parseLayerImportWorkbook(filePath);
+      const parsedAll = this.parseImportWorkbook(filePath, { layer, schema });
       return {
         importId: storageKey,
         fileName: file.originalname,
         layerId,
         totalRows: parsedAll.rows.length,
         schemaVersionId: meta.schemaVersionId,
+        ...columnAnalysis,
       };
     } catch (error) {
+      const columnAnalysis = this.safeAnalyzeImportColumns(filePath, schema);
+      if (
+        columnAnalysis.unknownColumns.length > 0 &&
+        this.canFallbackToCurrentSchema(error)
+      ) {
+        return {
+          importId: storageKey,
+          fileName: file.originalname,
+          layerId,
+          totalRows: estimateLayerImportWorkbookRowCount(filePath),
+          schemaVersionId: schema.schemaVersionId,
+          ...columnAnalysis,
+        };
+      }
+
       fs.unlinkSync(filePath);
       throw new BadRequestException(
         error instanceof Error ? error.message : 'File Excel không hợp lệ',
@@ -149,10 +185,49 @@ export class LayerImportService {
     importId: string,
     previewLimit = 20,
   ) {
-    const { validatedRows, summary, meta, dictionaryItemsCreated } =
-      await this.validateImportFile(tenantId, layerId, importId, {
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
+    const filePath = this.resolveFilePath(importId);
+    const columnAnalysis = this.analyzeImportColumns(filePath, schema);
+
+    let validated:
+      | Awaited<ReturnType<LayerImportService['validateImportFile']>>
+      | null = null;
+
+    try {
+      validated = await this.validateImportFile(tenantId, layerId, importId, {
         persistDictionaryItems: false,
       });
+    } catch (error) {
+      if (
+        columnAnalysis.unknownColumns.length === 0 ||
+        !this.canFallbackToCurrentSchema(error)
+      ) {
+        throw error;
+      }
+
+      return {
+        importId,
+        layerId,
+        ...columnAnalysis,
+        totalRows: estimateLayerImportWorkbookRowCount(filePath),
+        validRows: 0,
+        errorRows: 0,
+        canImport: false,
+        errors: [],
+        errorCount: 0,
+        dictionaryItemsCreated: [],
+        columns: [],
+        previewRows: [],
+        previewCount: 0,
+        message:
+          'File có cột chưa có trong schema. Chọn các cột cần tạo field mới rồi import.',
+      };
+    }
+
+    const { validatedRows, summary, meta, dictionaryItemsCreated } = validated;
 
     const previewRows = validatedRows.slice(0, previewLimit).map((row) => ({
       rowNumber: row.rowNumber,
@@ -165,6 +240,7 @@ export class LayerImportService {
     return {
       importId,
       layerId,
+      ...columnAnalysis,
       ...summary,
       errorCount: summary.errors.length,
       dictionaryItemsCreated,
@@ -190,10 +266,29 @@ export class LayerImportService {
     layerId: string,
     userId: string,
     importId: string,
+    dto: ImportNewFieldsDto = {},
   ) {
+    const newFields = dto.newFields ?? [];
+    if (newFields.length > 0) {
+      await this.metadataService.addFieldsToLayerSchema(
+        tenantId,
+        layerId,
+        userId,
+        newFields.map((field) => ({
+          code: field.code,
+          label: field.label,
+          fieldType: field.fieldType,
+          required: field.required,
+          dataSchema: field.dataSchema,
+        })),
+      );
+    }
+
     const { validatedRows, summary, schema, dedupKeys, dictionaryItemsCreated } =
       await this.validateImportFile(tenantId, layerId, importId, {
         persistDictionaryItems: true,
+        forceCurrentSchemaMeta: newFields.length > 0,
+        allowSchemaVersionMismatch: newFields.length > 0,
       });
 
     if (!summary.canImport) {
@@ -273,20 +368,35 @@ export class LayerImportService {
     tenantId: string,
     layerId: string,
     importId: string,
-    options: { persistDictionaryItems?: boolean } = {},
+    options: {
+      persistDictionaryItems?: boolean;
+      forceCurrentSchemaMeta?: boolean;
+      allowSchemaVersionMismatch?: boolean;
+    } = {},
   ) {
     const schema = await this.metadataService.getPublishedSchema(
       tenantId,
       layerId,
     );
+    const layer = await this.metadataService.getLayerById(tenantId, layerId);
     const filePath = this.resolveFilePath(importId);
-    const { meta, rows } = parseLayerImportWorkbook(filePath);
+    const { meta, rows } = this.parseImportWorkbook(
+      filePath,
+      { layer, schema },
+      undefined,
+      {
+        forceCurrentSchemaMeta: options.forceCurrentSchemaMeta ?? false,
+      },
+    );
 
     if (meta.layerId !== layerId) {
       throw new BadRequestException('File không thuộc lớp dữ liệu này');
     }
 
-    if (meta.schemaVersionId !== schema.schemaVersionId) {
+    if (
+      meta.schemaVersionId !== schema.schemaVersionId &&
+      !options.allowSchemaVersionMismatch
+    ) {
       throw new BadRequestException(
         'Schema lớp dữ liệu đã thay đổi. Tải file mẫu mới trước khi import.',
       );
@@ -357,6 +467,109 @@ export class LayerImportService {
       dedupKeys,
       meta,
     };
+  }
+
+  private parseImportWorkbook(
+    filePath: string,
+    context: {
+      layer: { id: string; code: string; name: string };
+      schema: {
+        schemaVersionId: string;
+        fields: Array<{
+          code: string;
+          label: string;
+          fieldType: string;
+          dataSchema: Record<string, unknown>;
+        }>;
+      };
+    },
+    limit?: number,
+    options: { forceCurrentSchemaMeta?: boolean } = {},
+  ): { meta: LayerExcelMeta; rows: LayerExcelParsedRow[] } {
+    if (options.forceCurrentSchemaMeta) {
+      const meta = this.buildCurrentLayerImportMeta(context);
+      return parseLayerImportWorkbookWithMeta(filePath, meta, limit);
+    }
+
+    try {
+      const parsed = parseLayerImportWorkbook(filePath, limit);
+      const importColumns = parsed.meta.columns.filter(
+        (column) => column.fieldCode !== LAYER_EXCEL_STT_CODE,
+      );
+      if (importColumns.length > 0) {
+        return parsed;
+      }
+    } catch (error) {
+      if (!this.canFallbackToCurrentSchema(error)) {
+        throw error;
+      }
+    }
+
+    const meta = this.buildCurrentLayerImportMeta(context);
+    return parseLayerImportWorkbookWithMeta(filePath, meta, limit);
+  }
+
+  private analyzeImportColumns(
+    filePath: string,
+    schema: {
+      fields: Array<{ code: string; label: string }>;
+    },
+  ): ImportColumnAnalysis {
+    return buildImportColumnAnalysis(
+      inspectLayerImportWorkbookColumns(filePath),
+      schema.fields,
+    );
+  }
+
+  private safeAnalyzeImportColumns(
+    filePath: string,
+    schema: {
+      fields: Array<{ code: string; label: string }>;
+    },
+  ): ImportColumnAnalysis {
+    try {
+      return this.analyzeImportColumns(filePath, schema);
+    } catch {
+      return {
+        detectedColumns: [],
+        existingFields: schema.fields.map((field) => field.code),
+        unknownColumns: [],
+        columnSuggestions: [],
+      };
+    }
+  }
+
+  private buildCurrentLayerImportMeta(context: {
+    layer: { id: string; code: string; name: string };
+    schema: {
+      schemaVersionId: string;
+      fields: Array<{
+        code: string;
+        label: string;
+        fieldType: string;
+        dataSchema: Record<string, unknown>;
+      }>;
+    };
+  }): LayerExcelMeta {
+    return {
+      formatVersion: LAYER_EXCEL_FORMAT_VERSION,
+      layerId: context.layer.id,
+      layerCode: context.layer.code,
+      layerName: context.layer.name,
+      schemaVersionId: context.schema.schemaVersionId,
+      headerRow: 2,
+      fieldCodeRow: 3,
+      dataStartRow: 4,
+      columns: buildImportColumns(context.schema.fields),
+    };
+  }
+
+  private canFallbackToCurrentSchema(error: unknown) {
+    return (
+      error instanceof Error &&
+      (error.message.includes('thiếu sheet _meta') ||
+        error.message.includes('File mẫu không có cột dữ liệu'))
+    );
   }
 
   private async resolveDictionaryItemsForImport(

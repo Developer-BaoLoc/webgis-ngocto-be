@@ -35,6 +35,13 @@ export class LayersController {
   async listCatalog(@RequestId() requestId?: string) {
     const tenantId = this.configService.get('tenant.defaultId', { infer: true });
     const layers = await this.metadataService.listLayers(tenantId);
+    const duongLayer = layers.find((layer) => layer.code === 'duong');
+    console.log('[duong-render-trace][backend:/layers]', {
+      tenantId,
+      found: Boolean(duongLayer),
+      layer: duongLayer,
+      layerCount: layers.length,
+    });
 
     return apiResponse(
       {

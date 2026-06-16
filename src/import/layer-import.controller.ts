@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -17,6 +18,7 @@ import {
 } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/api.types';
 import { apiResponse } from '../common/utils/api-response.util';
+import { ImportNewFieldsDto } from './dto/import-new-field.dto';
 
 @Controller('layers/:layerId/imports')
 export class LayerImportController {
@@ -78,6 +80,7 @@ export class LayerImportController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('layerId', ParseUUIDPipe) layerId: string,
     @Param('importId') importId: string,
+    @Body() dto: ImportNewFieldsDto,
     @RequestId() requestId?: string,
   ) {
     const result = await this.layerImportService.execute(
@@ -85,6 +88,7 @@ export class LayerImportController {
       layerId,
       user.id,
       importId,
+      dto,
     );
     return apiResponse(result, { requestId });
   }

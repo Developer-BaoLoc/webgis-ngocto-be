@@ -74,7 +74,8 @@ export async function generateUniqueLayerCode(
 function resolveLayerIcon(style: Record<string, unknown>): LayerIcon {
   const attachmentId = String(style.iconAttachmentId ?? '').trim();
   const iconUrl = String(style.iconUrl ?? '').trim();
-  const preset = String(style.icon ?? '').trim();
+  const preset =
+    typeof style.icon === 'string' ? style.icon.trim() : '';
 
   if (attachmentId) {
     if (!iconUrl) {
@@ -103,6 +104,30 @@ function resolveLayerIcon(style: Record<string, unknown>): LayerIcon {
   );
 }
 
+function resolveOptionalLayerIcon(
+  style: Record<string, unknown>,
+): LayerIcon | undefined {
+  const hasIconInput = Boolean(
+    String(style.iconAttachmentId ?? '').trim() ||
+      String(style.iconUrl ?? '').trim() ||
+      (typeof style.icon === 'string' && style.icon.trim()),
+  );
+
+  const storedIcon = style.icon as LayerIcon | undefined;
+  if (
+    !hasIconInput &&
+    !(
+      storedIcon &&
+      typeof storedIcon === 'object' &&
+      'source' in storedIcon
+    )
+  ) {
+    return undefined;
+  }
+
+  return resolveLayerIcon(style);
+}
+
 function readStoredIcon(styleConfig: Record<string, unknown>): LayerIcon | null {
   const rawIcon = styleConfig.icon;
   if (typeof rawIcon === 'object' && rawIcon !== null && 'source' in rawIcon) {
@@ -119,9 +144,10 @@ export function buildStyleConfig(
   style: Record<string, unknown>,
 ): LayerStyleConfig {
   if (geometryType === 'point') {
+    const icon = resolveOptionalLayerIcon(style);
     return {
       geometryType: 'point',
-      icon: resolveLayerIcon(style),
+      ...(icon ? { icon } : {}),
     };
   }
 
@@ -138,7 +164,6 @@ export function buildStyleConfig(
       geometryType: 'line',
       lineColor,
       lineWidth,
-      icon: resolveLayerIcon(style),
     };
   }
 
@@ -153,7 +178,6 @@ export function buildStyleConfig(
     geometryType: 'polygon',
     fillColor,
     strokeColor,
-    icon: resolveLayerIcon(style),
   };
 }
 
@@ -169,16 +193,18 @@ export function parseStoredStyleConfig(
         icon: { source: 'preset', name: icon },
       };
     }
+    if (styleConfig.geometryType === 'point') {
+      const storedIcon = readStoredIcon(styleConfig);
+      return {
+        geometryType: 'point',
+        ...(storedIcon ? { icon: storedIcon } : {}),
+      };
+    }
     if (styleConfig.geometryType === 'line') {
       return {
         geometryType: 'line',
         lineColor: String(styleConfig.lineColor ?? '#3388ff'),
         lineWidth: Number(styleConfig.lineWidth ?? 2),
-        icon:
-          readStoredIcon(styleConfig) ?? {
-            source: 'preset',
-            name: 'default',
-          },
       };
     }
     if (styleConfig.geometryType === 'polygon') {
@@ -186,11 +212,6 @@ export function parseStoredStyleConfig(
         geometryType: 'polygon',
         fillColor: String(styleConfig.fillColor ?? '#3388ff'),
         strokeColor: String(styleConfig.strokeColor ?? '#2266cc'),
-        icon:
-          readStoredIcon(styleConfig) ?? {
-            source: 'preset',
-            name: 'default',
-          },
       };
     }
     return styleConfig as LayerStyleConfig;
@@ -214,23 +235,18 @@ export function parseStoredStyleConfig(
     }
     return {
       geometryType: 'point',
-      icon: { source: 'preset', name: 'default' },
     };
   }
   if (inferred === 'line') {
-    const icon = readStoredIcon(styleConfig);
     return {
       geometryType: 'line',
       lineColor: String(styleConfig.lineColor ?? '#3388ff'),
       lineWidth: Number(styleConfig.lineWidth ?? 2),
-      ...(icon ? { icon } : { icon: { source: 'preset', name: 'default' } }),
     };
   }
-  const icon = readStoredIcon(styleConfig);
   return {
     geometryType: 'polygon',
     fillColor: String(styleConfig.fillColor ?? '#3388ff'),
     strokeColor: String(styleConfig.strokeColor ?? '#2266cc'),
-    ...(icon ? { icon } : { icon: { source: 'preset', name: 'default' } }),
   };
 }

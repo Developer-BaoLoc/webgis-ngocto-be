@@ -37,6 +37,21 @@ export interface FieldTypeHandler {
 const isEmpty = (value: unknown) =>
   value === null || value === undefined || value === '';
 
+function parseNumberInput(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 const textHandler: FieldTypeHandler = {
   type: 'text',
   validate(value, config) {
@@ -59,14 +74,36 @@ const integerHandler: FieldTypeHandler = {
     if (config.required && isEmpty(value)) {
       return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
     }
-    if (!isEmpty(value) && !Number.isInteger(Number(value))) {
+    if (isEmpty(value)) return null;
+
+    const parsed = parseNumberInput(value);
+    if (parsed === null || !Number.isInteger(parsed)) {
       return { field: '', code: 'INVALID_TYPE', message: 'Phải là số nguyên' };
     }
     return null;
   },
   normalize(value) {
     if (isEmpty(value)) return null;
-    return parseInt(String(value), 10);
+    return parseNumberInput(value);
+  },
+};
+
+const decimalHandler: FieldTypeHandler = {
+  type: 'decimal',
+  validate(value, config) {
+    if (config.required && isEmpty(value)) {
+      return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
+    }
+    if (isEmpty(value)) return null;
+
+    if (parseNumberInput(value) === null) {
+      return { field: '', code: 'INVALID_TYPE', message: 'Phải là số' };
+    }
+    return null;
+  },
+  normalize(value) {
+    if (isEmpty(value)) return null;
+    return parseNumberInput(value);
   },
 };
 
@@ -292,6 +329,7 @@ const HANDLERS: Record<string, FieldTypeHandler> = {
   text: textHandler,
   textarea: textareaHandler,
   integer: integerHandler,
+  decimal: decimalHandler,
   money: moneyHandler,
   measurement: measurementHandler,
   category: categoryHandler,

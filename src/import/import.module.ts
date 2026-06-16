@@ -19,6 +19,8 @@ import { MetadataModule } from '../metadata/metadata.module';
 import { DictionariesModule } from '../dictionaries/dictionaries.module';
 import { LayerImportController } from './layer-import.controller';
 import { LayerImportService } from './layer-import.service';
+import { GeoJsonImportController } from './geojson-import.controller';
+import { GeoJsonImportService } from './geojson-import.service';
 import { JobsController } from '../jobs/jobs.controller';
 
 @Module({
@@ -47,13 +49,19 @@ import { JobsController } from '../jobs/jobs.controller';
     MetadataModule,
     DictionariesModule,
   ],
-  controllers: [ImportController, JobsController, LayerImportController],
+  controllers: [
+    ImportController,
+    JobsController,
+    LayerImportController,
+    GeoJsonImportController,
+  ],
   providers: [
     ImportService,
     LayerImportService,
+    GeoJsonImportService,
     ...(process.env.NODE_ENV === 'test' ? [] : [ImportProcessor]),
   ],
-  exports: [ImportService, LayerImportService],
+  exports: [ImportService, LayerImportService, GeoJsonImportService],
 })
 export class ImportModule implements OnModuleDestroy {
   constructor(@InjectQueue(IMPORT_QUEUE) private readonly importQueue: Queue) {}

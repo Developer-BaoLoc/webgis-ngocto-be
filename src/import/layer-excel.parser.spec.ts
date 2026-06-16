@@ -1,8 +1,15 @@
 import {
+  estimateLayerImportWorkbookRowCount,
+  inspectLayerImportWorkbookColumns,
   parseLayerImportMatrix,
+  parseLayerImportWorkbookWithMeta,
   resolveHeaderRowIndices,
 } from './layer-excel.parser';
 import { LayerExcelMeta } from './layer-excel.types';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as XLSX from 'xlsx';
 
 function buildMeta(): LayerExcelMeta {
   return {
@@ -99,4 +106,86 @@ describe('layer-excel.parser', () => {
     );
     expect(headerRows).toEqual(new Set([0, 1, 2]));
   });
+
+  it('imports workbook with title, labels, and data but without field-code row when meta is supplied', () => {
+    const filePath = writeWorkbook([
+      ['Mẫu import — Hợp tác xã'],
+      ['STT', 'Tên*'],
+      ['1', 'HTX Test 1'],
+      ['2', 'HTX Test 2'],
+    ]);
+
+    const result = parseLayerImportWorkbookWithMeta(filePath, {
+      ...meta,
+      columns: meta.columns.slice(0, 2),
+    });
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].properties.ten).toBe('HTX Test 1');
+    expect(result.rows[1].properties.ten).toBe('HTX Test 2');
+  });
+
+  it('imports workbook with labels, field-code row, and blank STT data when meta is supplied', () => {
+    const filePath = writeWorkbook([
+      ['STT', 'Tên*'],
+      ['__stt__', 'ten'],
+      ['', 'HTX Test 1'],
+      ['', 'HTX Test 2'],
+    ]);
+
+    const result = parseLayerImportWorkbookWithMeta(filePath, {
+      ...meta,
+      columns: meta.columns.slice(0, 2),
+    });
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].properties.ten).toBe('HTX Test 1');
+    expect(result.rows[1].properties.ten).toBe('HTX Test 2');
+  });
+
+  it('detects unknown columns from workbook headers', () => {
+    const filePath = writeWorkbook([
+      ['Mẫu import — Hợp tác xã'],
+      ['STT', 'Tên*', 'Đường kính'],
+      ['__stt__', 'ten', 'duong_kinh'],
+      ['1', 'HTX Test 1', '1200'],
+      ['2', 'HTX Test 2', '1500'],
+    ]);
+
+    const columns = inspectLayerImportWorkbookColumns(filePath);
+
+    expect(columns.map((column) => column.code)).toEqual([
+      'ten',
+      'duong_kinh',
+    ]);
+    expect(columns[1].values).toEqual(['1200', '1500']);
+    expect(estimateLayerImportWorkbookRowCount(filePath)).toBe(2);
+  });
+
+  it('maps data by field-code header when workbook has no STT column', () => {
+    const filePath = writeWorkbook([
+      ['ten', 'dia_chi'],
+      ['HTX Test 1', 'Đường A'],
+      ['HTX Test 2', 'Đường B'],
+    ]);
+
+    const result = parseLayerImportWorkbookWithMeta(filePath, meta);
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].properties.ten).toBe('HTX Test 1');
+    expect(result.rows[0].properties.dia_chi).toBe('Đường A');
+  });
 });
+
+function writeWorkbook(rows: unknown[][]) {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet(rows),
+    'Du_lieu',
+  );
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'layer-import-'));
+  const filePath = path.join(dir, 'plain.xlsx');
+  XLSX.writeFile(workbook, filePath);
+  return filePath;
+}

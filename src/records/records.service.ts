@@ -446,6 +446,18 @@ export class RecordsService implements OnModuleInit {
     },
   ) {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
+    const traceDuong = layer.code === 'duong';
+    if (traceDuong) {
+      console.log('[duong-render-trace][backend:geojson:start]', {
+        tenantId,
+        layerId,
+        code: layer.code,
+        geometryKind: layer.geometryKind,
+        geometryType: layer.geometryType,
+        bbox: options.bbox ?? null,
+        includeUnlocated: options.includeUnlocated ?? false,
+      });
+    }
     let schemaFields: Array<{
       code: string;
       fieldType: string;
@@ -467,6 +479,12 @@ export class RecordsService implements OnModuleInit {
         schemaFields.some((field) => field.fieldType === 'lat_lng')) ||
       (isPolygonGeometryKind(layer.geometryKind) &&
         schemaFields.some((field) => field.fieldType === 'area_polygon'));
+    if (traceDuong) {
+      console.log('[duong-render-trace][backend:geojson:schema]', {
+        schemaFieldCount: schemaFields.length,
+        useGeocodedFallback,
+      });
+    }
 
     const params: unknown[] = [tenantId, layerId];
     let spatialFilter = '';
@@ -501,6 +519,12 @@ export class RecordsService implements OnModuleInit {
       `,
       params,
     );
+    if (traceDuong) {
+      console.log('[duong-render-trace][backend:geojson:rows]', {
+        rowCount: rows.length,
+        spatialFilter: spatialFilter.trim() || null,
+      });
+    }
 
     const features = await Promise.all(
       rows.map(async (row: {
@@ -578,6 +602,17 @@ export class RecordsService implements OnModuleInit {
         if (!coords || coords.length < 2) return false;
         const [lng, lat] = coords;
         return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+      });
+    }
+    if (traceDuong) {
+      console.log('[duong-render-trace][backend:geojson:return]', {
+        featureCount: result.length,
+        firstGeometryType:
+          result[0]?.geometry &&
+          typeof result[0].geometry === 'object' &&
+          'type' in result[0].geometry
+            ? (result[0].geometry as { type?: unknown }).type
+            : null,
       });
     }
 
