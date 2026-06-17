@@ -1,13 +1,20 @@
+# Dev & prod: port chỉ bind 127.0.0.1 — API trên cùng máy kết nối qua localhost.
+# KHÐNG expose 5434/6379/9000 ra internet (tránh bot quét Postgres → lỗi auth / treo DB).
+#
+# Production: đặt mật khẩu mạnh trong .env (DATABASE_PASSWORD, MINIO_SECRET_KEY, …)
+# và khớp với biến NestJS (DATABASE_*, MINIO_*).
+
 services:
   postgres:
     image: postgis/postgis:16-3.4
     container_name: gis_longbinh_postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: gis_longbinh
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE_NAME:-gis_longbinh}
     ports:
-      - '5434:5432'
+      - '127.0.0.1:${DATABASE_PORT:-5434}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,21 +26,24 @@ services:
   redis:
     image: redis:7-alpine
     container_name: gis_longbinh_redis
+    restart: unless-stopped
     ports:
-      - '6379:6379'
+      # Host 6379 bận → đặt REDIS_PUBLISH_PORT=6380 trong .env server
+      - '127.0.0.1:${REDIS_PUBLISH_PORT:-6379}:6379'
     volumes:
       - redis_data:/data
 
   minio:
     image: minio/minio:latest
     container_name: gis_longbinh_minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:${MINIO_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
     volumes:
       - minio_data:/data
 

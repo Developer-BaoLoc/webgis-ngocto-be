@@ -202,6 +202,22 @@ sleep 10
 yarn db:migrate
 ```
 
+**Bảo mật (bắt buộc trên server):**
+
+- `docker-compose.yml` bind Postgres/Redis/MinIO vào **`127.0.0.1`** — chỉ app trên máy truy cập được, không mở ra internet.
+- Đặt `DATABASE_PASSWORD`, `MINIO_SECRET_KEY` mạnh trong `.env` (khớp `DATABASE_*` / `MINIO_*` của NestJS).
+- **Không** chạy `docker compose down -v` trên production (xóa volume = mất DB + ảnh).
+- Nếu port host `6379` đã dùng: thêm `REDIS_PUBLISH_PORT=6380` và `REDIS_PORT=6380` trong `.env`.
+- Kiểm tra firewall: `sudo ufw status` — chỉ mở 80/443/SSH, **không** mở 5434/9000.
+
+Nếu trước đó đã expose port ra internet, sau khi sửa compose:
+
+```bash
+docker compose down
+docker compose up -d
+# Đảm bảo .env DATABASE_PASSWORD khớp mật khẩu thật trong volume Postgres
+```
+
 ### 4. Chạy bằng systemd
 
 `/etc/systemd/system/gis-api.service`:
