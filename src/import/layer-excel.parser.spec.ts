@@ -175,6 +175,20 @@ describe('layer-excel.parser', () => {
     expect(result.rows[0].properties.ten).toBe('HTX Test 1');
     expect(result.rows[0].properties.dia_chi).toBe('Đường A');
   });
+
+  it('imports CSV by field-code header with supplied metadata', () => {
+    const filePath = writeCsv([
+      ['ten', 'dia_chi'],
+      ['HTX CSV 1', 'Đường CSV A'],
+      ['HTX CSV 2', 'Đường CSV B'],
+    ]);
+
+    const result = parseLayerImportWorkbookWithMeta(filePath, meta);
+
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows[0].properties.ten).toBe('HTX CSV 1');
+    expect(result.rows[1].properties.dia_chi).toBe('Đường CSV B');
+  });
 });
 
 function writeWorkbook(rows: unknown[][]) {
@@ -187,5 +201,19 @@ function writeWorkbook(rows: unknown[][]) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'layer-import-'));
   const filePath = path.join(dir, 'plain.xlsx');
   XLSX.writeFile(workbook, filePath);
+  return filePath;
+}
+
+function writeCsv(rows: unknown[][]) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'layer-import-'));
+  const filePath = path.join(dir, 'plain.csv');
+  const content = rows
+    .map((row) =>
+      row
+        .map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`)
+        .join(','),
+    )
+    .join('\n');
+  fs.writeFileSync(filePath, content, 'utf8');
   return filePath;
 }

@@ -82,7 +82,10 @@ function isTitleRow(row: unknown[]): boolean {
 }
 
 function readDataSheetMatrix(filePath: string): unknown[][] {
-  const workbook = XLSX.readFile(filePath, { cellDates: false });
+  const workbook = XLSX.readFile(filePath, {
+    cellDates: false,
+    codepage: 65001,
+  });
   const dataSheet =
     workbook.Sheets[LAYER_EXCEL_DATA_SHEET] ??
     workbook.Sheets[workbook.SheetNames[0] ?? ''];
@@ -370,7 +373,10 @@ export function parseLayerImportWorkbook(
   filePath: string,
   limit?: number,
 ): { meta: LayerExcelMeta; rows: LayerExcelParsedRow[] } {
-  const workbook = XLSX.readFile(filePath, { cellDates: false });
+  const workbook = XLSX.readFile(filePath, {
+    cellDates: false,
+    codepage: 65001,
+  });
   const meta = readLayerExcelMeta(workbook);
 
   return parseLayerImportWorkbookWithMeta(filePath, meta, limit);

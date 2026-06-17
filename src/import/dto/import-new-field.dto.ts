@@ -9,15 +9,12 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  FIELD_TYPES,
+  FieldType,
+} from '../../metadata/constants/metadata.constants';
 
-export const IMPORT_NEW_FIELD_TYPES = [
-  'text',
-  'decimal',
-  'boolean',
-  'date',
-] as const;
-
-export type ImportNewFieldType = (typeof IMPORT_NEW_FIELD_TYPES)[number];
+export type ImportNewFieldType = FieldType;
 
 export class ImportNewFieldDto {
   @ApiProperty({ example: 'duong_kinh' })
@@ -31,11 +28,11 @@ export class ImportNewFieldDto {
   label: string;
 
   @ApiProperty({
-    enum: IMPORT_NEW_FIELD_TYPES,
+    enum: FIELD_TYPES,
     example: 'decimal',
-    description: 'Kiểu field đơn giản được phép tạo trực tiếp từ import.',
+    description: 'Dùng chung danh sách FIELD_TYPES với màn hình tạo field.',
   })
-  @IsIn([...IMPORT_NEW_FIELD_TYPES])
+  @IsIn([...FIELD_TYPES])
   fieldType: ImportNewFieldType;
 
   @ApiPropertyOptional({ default: false })
@@ -49,6 +46,16 @@ export class ImportNewFieldDto {
   @IsOptional()
   @IsObject()
   dataSchema?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  uiSchema?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  displaySchema?: Record<string, unknown>;
 }
 
 export class ImportNewFieldsDto {

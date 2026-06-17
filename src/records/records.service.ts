@@ -549,6 +549,7 @@ export class RecordsService implements OnModuleInit {
         let popupSummary: Array<{
           code: string;
           label: string;
+          fieldType?: string;
           displayValue: string;
           popupStyle?: {
             bold?: boolean;
@@ -565,6 +566,7 @@ export class RecordsService implements OnModuleInit {
           popupSummary = summary.fields.map((field) => ({
             code: field.code,
             label: field.label,
+            fieldType: field.fieldType,
             displayValue: field.displayValue,
             ...(field.popupStyle ? { popupStyle: field.popupStyle } : {}),
           }));

@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { AppConfig } from '../config/configuration';
 import {
@@ -64,6 +64,8 @@ export type ImportSchemaFieldInput = {
   fieldType: string;
   required?: boolean;
   dataSchema?: Record<string, unknown>;
+  uiSchema?: Record<string, unknown>;
+  displaySchema?: Record<string, unknown>;
 };
 
 @Injectable()
@@ -535,37 +537,18 @@ export class MetadataService {
       throw new ConflictException(`Field code đã có trong draft: ${code}`);
     }
 
-    await this.assertFieldDataSchema(tenantId, dto.fieldType, dto.dataSchema ?? {});
-
-    const field = await this.fieldsRepository.save(
-      this.fieldsRepository.create({
-        layerId: schema.layerId,
-        tenantId,
-        storageKey: code,
-      }),
-    );
-
-    const maxOrder = await this.schemaFieldsRepository
-      .createQueryBuilder('sf')
-      .select('COALESCE(MAX(sf.sort_order), 0)', 'max')
-      .where('sf.schema_version_id = :schemaId', { schemaId: schema.id })
-      .getRawOne<{ max: string }>();
-
-    await this.schemaFieldsRepository.save(
-      this.schemaFieldsRepository.create({
-        schemaVersionId: schema.id,
-        fieldId: field.id,
-        layerId: schema.layerId,
-        tenantId,
-        code,
-        label: dto.label,
-        fieldType: dto.fieldType,
-        dataSchema: dto.dataSchema ?? {},
-        uiSchema: dto.uiSchema ?? {},
-        displaySchema: dto.displaySchema ?? {},
-        sortOrder: dto.sortOrder ?? parseInt(maxOrder?.max ?? '0', 10) + 1,
-      }),
-    );
+    await this.createFieldVersionInSchema({
+      tenantId,
+      layerId: schema.layerId,
+      schemaVersionId: schema.id,
+      code,
+      label: dto.label,
+      fieldType: dto.fieldType,
+      dataSchema: dto.dataSchema ?? {},
+      uiSchema: dto.uiSchema ?? {},
+      displaySchema: dto.displaySchema ?? {},
+      sortOrder: dto.sortOrder,
+    });
 
     return this.autoPublishDraftAfterFieldChange(tenantId, schema.id, userId);
   }
@@ -618,10 +601,6 @@ export class MetadataService {
       };
     });
 
-    for (const field of nextFields) {
-      await this.assertFieldDataSchema(tenantId, field.fieldType, field.dataSchema);
-    }
-
     const storageKeyRows = await this.fieldsRepository.find({
       where: { layerId, storageKey: In(nextFields.map((field) => field.code)) },
       select: { storageKey: true },
@@ -642,30 +621,20 @@ export class MetadataService {
 
     await this.dataSource.transaction(async (manager) => {
       for (const fieldInput of nextFields) {
-        const field = await manager.save(
-          FieldEntity,
-          this.fieldsRepository.create({
-            layerId,
+        await this.createFieldVersionInSchema(
+          {
             tenantId,
-            storageKey: fieldInput.code,
-          }),
-        );
-
-        await manager.save(
-          SchemaFieldVersionEntity,
-          this.schemaFieldsRepository.create({
+            layerId,
             schemaVersionId: schema.id,
-            fieldId: field.id,
-            layerId,
-            tenantId,
             code: fieldInput.code,
             label: fieldInput.label,
             fieldType: fieldInput.fieldType,
             dataSchema: fieldInput.dataSchema,
-            uiSchema: {},
-            displaySchema: {},
+            uiSchema: fieldInput.uiSchema ?? {},
+            displaySchema: fieldInput.displaySchema ?? {},
             sortOrder: nextSortOrder,
-          }),
+          },
+          manager,
         );
         nextSortOrder += 1;
       }
@@ -868,6 +837,71 @@ export class MetadataService {
       fillColor: stored.fillColor,
       strokeColor: stored.strokeColor,
     };
+  }
+
+  private async createFieldVersionInSchema(
+    input: {
+      tenantId: string;
+      layerId: string;
+      schemaVersionId: string;
+      code: string;
+      label: string;
+      fieldType: string;
+      dataSchema: Record<string, unknown>;
+      uiSchema: Record<string, unknown>;
+      displaySchema: Record<string, unknown>;
+      sortOrder?: number;
+    },
+    manager?: EntityManager,
+  ) {
+    await this.assertFieldDataSchema(
+      input.tenantId,
+      input.fieldType,
+      input.dataSchema,
+    );
+
+    const maxOrder =
+      input.sortOrder !== undefined
+        ? null
+        : await this.schemaFieldsRepository
+            .createQueryBuilder('sf')
+            .select('COALESCE(MAX(sf.sort_order), 0)', 'max')
+            .where('sf.schema_version_id = :schemaId', {
+              schemaId: input.schemaVersionId,
+            })
+            .getRawOne<{ max: string }>();
+
+    const save = manager
+      ? <T>(entity: new () => T, value: T) => manager.save(entity, value)
+      : <T>(_entity: new () => T, value: T) =>
+          this.schemaFieldsRepository.manager.save(value);
+
+    const field = await save(
+      FieldEntity,
+      this.fieldsRepository.create({
+        layerId: input.layerId,
+        tenantId: input.tenantId,
+        storageKey: input.code,
+      }),
+    );
+
+    await save(
+      SchemaFieldVersionEntity,
+      this.schemaFieldsRepository.create({
+        schemaVersionId: input.schemaVersionId,
+        fieldId: field.id,
+        layerId: input.layerId,
+        tenantId: input.tenantId,
+        code: input.code,
+        label: input.label,
+        fieldType: input.fieldType,
+        dataSchema: input.dataSchema,
+        uiSchema: input.uiSchema,
+        displaySchema: input.displaySchema,
+        sortOrder:
+          input.sortOrder ?? parseInt(maxOrder?.max ?? '0', 10) + 1,
+      }),
+    );
   }
 
   private async createSchemaDraftInternal(

@@ -280,6 +280,8 @@ export class LayerImportService {
           fieldType: field.fieldType,
           required: field.required,
           dataSchema: field.dataSchema,
+          uiSchema: field.uiSchema,
+          displaySchema: field.displaySchema,
         })),
       );
     }
