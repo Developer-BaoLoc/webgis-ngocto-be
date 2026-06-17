@@ -7,8 +7,7 @@ import {
   LayerStyleConfig,
 } from '../constants/layer-geometry.constants';
 
-const VIETnamese_DIACRITICS =
-  /[\u0300-\u036f\u1ea0-\u1ef9]/g;
+const VIETnamese_DIACRITICS = /[\u0300-\u036f\u1ea0-\u1ef9]/g;
 
 function stripAccents(value: string): string {
   return value
@@ -74,14 +73,11 @@ export async function generateUniqueLayerCode(
 function resolveLayerIcon(style: Record<string, unknown>): LayerIcon {
   const attachmentId = String(style.iconAttachmentId ?? '').trim();
   const iconUrl = String(style.iconUrl ?? '').trim();
-  const preset =
-    typeof style.icon === 'string' ? style.icon.trim() : '';
+  const preset = typeof style.icon === 'string' ? style.icon.trim() : '';
 
   if (attachmentId) {
     if (!iconUrl) {
-      throw new BadRequestException(
-        'Upload icon cần iconUrl (từ API upload)',
-      );
+      throw new BadRequestException('Upload icon cần iconUrl (từ API upload)');
     }
     return { source: 'upload', attachmentId, url: iconUrl };
   }
@@ -91,11 +87,7 @@ function resolveLayerIcon(style: Record<string, unknown>): LayerIcon {
   }
 
   const storedIcon = style.icon as LayerIcon | undefined;
-  if (
-    storedIcon &&
-    typeof storedIcon === 'object' &&
-    'source' in storedIcon
-  ) {
+  if (storedIcon && typeof storedIcon === 'object' && 'source' in storedIcon) {
     return storedIcon;
   }
 
@@ -109,18 +101,14 @@ function resolveOptionalLayerIcon(
 ): LayerIcon | undefined {
   const hasIconInput = Boolean(
     String(style.iconAttachmentId ?? '').trim() ||
-      String(style.iconUrl ?? '').trim() ||
-      (typeof style.icon === 'string' && style.icon.trim()),
+    String(style.iconUrl ?? '').trim() ||
+    (typeof style.icon === 'string' && style.icon.trim()),
   );
 
   const storedIcon = style.icon as LayerIcon | undefined;
   if (
     !hasIconInput &&
-    !(
-      storedIcon &&
-      typeof storedIcon === 'object' &&
-      'source' in storedIcon
-    )
+    !(storedIcon && typeof storedIcon === 'object' && 'source' in storedIcon)
   ) {
     return undefined;
   }
@@ -128,7 +116,9 @@ function resolveOptionalLayerIcon(
   return resolveLayerIcon(style);
 }
 
-function readStoredIcon(styleConfig: Record<string, unknown>): LayerIcon | null {
+function readStoredIcon(
+  styleConfig: Record<string, unknown>,
+): LayerIcon | null {
   const rawIcon = styleConfig.icon;
   if (typeof rawIcon === 'object' && rawIcon !== null && 'source' in rawIcon) {
     return rawIcon as LayerIcon;

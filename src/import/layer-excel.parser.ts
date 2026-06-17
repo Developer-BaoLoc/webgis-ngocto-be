@@ -5,10 +5,7 @@ import {
   LAYER_EXCEL_META_SHEET,
   LAYER_EXCEL_STT_CODE,
 } from './layer-excel.constants';
-import {
-  LayerExcelMeta,
-  LayerExcelParsedRow,
-} from './layer-excel.types';
+import { LayerExcelMeta, LayerExcelParsedRow } from './layer-excel.types';
 import type { ImportDetectedColumn } from './import-column-discovery';
 
 function normalizeCell(value: unknown): string {
@@ -22,9 +19,7 @@ function stripAccents(value: string): string {
 function isRowEmpty(values: unknown[]): boolean {
   return values.every(
     (value) =>
-      value === null ||
-      value === undefined ||
-      normalizeCell(value) === '',
+      value === null || value === undefined || normalizeCell(value) === '',
   );
 }
 
@@ -52,10 +47,7 @@ function rowMatchesFieldCodes(
   return matches >= minMatches && matches >= Math.max(checked, 1) * 0.6;
 }
 
-function rowMatchesFieldLabels(
-  row: unknown[],
-  meta: LayerExcelMeta,
-): boolean {
+function rowMatchesFieldLabels(row: unknown[], meta: LayerExcelMeta): boolean {
   let matches = 0;
   let checked = 0;
 
@@ -133,7 +125,7 @@ function resolveColumnHeaderRows(matrix: unknown[][]): {
     : firstContentRow;
   const maybeCodeRowIndex = labelRowIndex + 1;
   const codeRow =
-    maybeCodeRowIndex < matrix.length ? matrix[maybeCodeRowIndex] ?? [] : [];
+    maybeCodeRowIndex < matrix.length ? (matrix[maybeCodeRowIndex] ?? []) : [];
   const codeRowIndex = looksLikeFieldCodeRow(codeRow)
     ? maybeCodeRowIndex
     : null;
@@ -147,8 +139,7 @@ function resolveColumnHeaderRows(matrix: unknown[][]): {
 
 function isSttColumn(code: string, label: string): boolean {
   return (
-    code === LAYER_EXCEL_STT_CODE ||
-    stripAccents(label).toLowerCase() === 'stt'
+    code === LAYER_EXCEL_STT_CODE || stripAccents(label).toLowerCase() === 'stt'
   );
 }
 
@@ -156,7 +147,9 @@ function alignMetaColumnsToMatrix(
   matrix: unknown[][],
   meta: LayerExcelMeta,
 ): LayerExcelMeta {
-  const byCode = new Map(meta.columns.map((column) => [column.fieldCode, column]));
+  const byCode = new Map(
+    meta.columns.map((column) => [column.fieldCode, column]),
+  );
   const byLabel = new Map(
     meta.columns.map((column) => [stripRequiredMarker(column.label), column]),
   );
@@ -206,7 +199,7 @@ export function inspectLayerImportWorkbookColumns(
   const labelRow = matrix[headerRows.labelRowIndex] ?? [];
   const codeRow =
     headerRows.codeRowIndex !== null
-      ? matrix[headerRows.codeRowIndex] ?? []
+      ? (matrix[headerRows.codeRowIndex] ?? [])
       : [];
   const maxColumns = Math.max(labelRow.length, codeRow.length);
   const columns: ImportDetectedColumn[] = [];
@@ -224,7 +217,11 @@ export function inspectLayerImportWorkbookColumns(
       rowIndex += 1
     ) {
       const value = matrix[rowIndex]?.[idx];
-      if (value !== null && value !== undefined && normalizeCell(value) !== '') {
+      if (
+        value !== null &&
+        value !== undefined &&
+        normalizeCell(value) !== ''
+      ) {
         values.push(value);
       }
     }
@@ -243,9 +240,8 @@ export function estimateLayerImportWorkbookRowCount(filePath: string): number {
   const matrix = readDataSheetMatrix(filePath);
   const headerRows = resolveColumnHeaderRows(matrix);
   const startIndex = headerRows?.dataStartIndex ?? 0;
-  return matrix
-    .slice(startIndex)
-    .filter((row) => !isRowEmpty(row ?? [])).length;
+  return matrix.slice(startIndex).filter((row) => !isRowEmpty(row ?? []))
+    .length;
 }
 
 /** Các dòng tiêu đề / header — mọi dòng khác (có dữ liệu) đều được import. */

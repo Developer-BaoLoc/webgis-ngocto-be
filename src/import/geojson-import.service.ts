@@ -24,6 +24,7 @@ import type {
   ImportColumnAnalysis,
   ImportDetectedColumn,
 } from './import-column-discovery';
+import { RelationshipService } from '../metadata/relationship.service';
 
 const { pick } = require('stream-json/filters/pick.js') as {
   pick: (options: { filter: string }) => NodeJS.ReadWriteStream;
@@ -111,15 +112,12 @@ export class GeoJsonImportService {
     private readonly metadataService: MetadataService,
     private readonly wardBoundaryService: WardBoundaryService,
     private readonly dataSource: DataSource,
+    private readonly relationshipService: RelationshipService,
   ) {
     mkdirSync(this.uploadDir, { recursive: true });
   }
 
-  async upload(
-    tenantId: string,
-    layerId: string,
-    file: Express.Multer.File,
-  ) {
+  async upload(tenantId: string, layerId: string, file: Express.Multer.File) {
     await this.metadataService.getLayerById(tenantId, layerId);
     const schema = await this.metadataService.getPublishedSchema(
       tenantId,
@@ -305,7 +303,11 @@ export class GeoJsonImportService {
       }
 
       if (options.insert && spatialAccepted.length > 0) {
-        inserted += await this.insertBatch(context, spatialAccepted, options.manager);
+        inserted += await this.insertBatch(
+          context,
+          spatialAccepted,
+          options.manager,
+        );
       }
 
       batch = [];
@@ -313,7 +315,11 @@ export class GeoJsonImportService {
 
     for await (const feature of this.iterateFeatures(filePath)) {
       totalFeatures += 1;
-      const prepared = this.prepareFeature(feature, totalFeatures, context);
+      const prepared = await this.prepareFeature(
+        feature,
+        totalFeatures,
+        context,
+      );
       const geometryType = feature?.geometry?.type;
       if (geometryType) {
         geometryTypes[geometryType] = (geometryTypes[geometryType] ?? 0) + 1;
@@ -351,11 +357,11 @@ export class GeoJsonImportService {
     };
   }
 
-  private prepareFeature(
+  private async prepareFeature(
     feature: GeoJsonFeatureLike,
     rowNumber: number,
     context: ImportContext,
-  ): { feature: PreparedFeature } | { error: string } {
+  ): Promise<{ feature: PreparedFeature } | { error: string }> {
     if (!feature || feature.type !== 'Feature') {
       return { error: 'Item không phải GeoJSON Feature' };
     }
@@ -377,7 +383,23 @@ export class GeoJsonImportService {
       context.schema.fields,
       context.options.propertyMapping ?? {},
     );
-    const errors = validateProperties(context.schema.fields, mappedProperties);
+    const { rows, errors: relationshipErrors } =
+      await this.relationshipService.normalizeImportRows(
+        context.tenantId,
+        context.schema.fields,
+        [{ rowNumber, properties: mappedProperties }],
+      );
+    if (relationshipErrors.length > 0) {
+      return {
+        error: relationshipErrors.map((err) => err.message).join('; '),
+      };
+    }
+
+    const resolvedProperties = rows[0]?.properties ?? mappedProperties;
+    const errors = validateProperties(
+      context.schema.fields,
+      resolvedProperties,
+    );
     if (errors.length > 0) {
       return {
         error: errors
@@ -389,7 +411,10 @@ export class GeoJsonImportService {
     return {
       feature: {
         rowNumber,
-        properties: normalizeProperties(context.schema.fields, mappedProperties),
+        properties: normalizeProperties(
+          context.schema.fields,
+          resolvedProperties,
+        ),
         geometry: feature.geometry,
       },
     };
@@ -503,7 +528,9 @@ export class GeoJsonImportService {
         JSON.stringify(boundary),
       ],
     );
-    const accepted = new Set(rows.map((row: { row_number: number }) => row.row_number));
+    const accepted = new Set(
+      rows.map((row: { row_number: number }) => row.row_number),
+    );
     return batch.filter((feature) => accepted.has(feature.rowNumber));
   }
 
@@ -567,7 +594,9 @@ export class GeoJsonImportService {
       const boundary = this.wardBoundaryService.getBoundaryGeoJson();
       const geometry = boundary.features[0]?.geometry;
       if (!geometry) {
-        throw new BadRequestException('Không tìm thấy ranh giới phường hiện tại');
+        throw new BadRequestException(
+          'Không tìm thấy ranh giới phường hiện tại',
+        );
       }
       return geometry;
     }
@@ -614,7 +643,9 @@ export class GeoJsonImportService {
       if (iterator.return) await iterator.return(undefined);
     } catch (error) {
       throw new BadRequestException(
-        error instanceof Error ? error.message : 'features phải là mảng GeoJSON Feature',
+        error instanceof Error
+          ? error.message
+          : 'features phải là mảng GeoJSON Feature',
       );
     }
   }
@@ -687,7 +718,9 @@ export class GeoJsonImportService {
       streamArray(),
     ] as any[]);
 
-    for await (const item of pipeline as AsyncIterable<{ value: GeoJsonFeatureLike }>) {
+    for await (const item of pipeline as AsyncIterable<{
+      value: GeoJsonFeatureLike;
+    }>) {
       yield item.value;
     }
   }

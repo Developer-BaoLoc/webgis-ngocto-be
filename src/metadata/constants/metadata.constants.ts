@@ -30,6 +30,7 @@ export const FIELD_TYPES = [
   'category',
   'multi_category',
   'reference',
+  'relationship',
   'lat_lng',
   'area_polygon',
   'image',
@@ -42,10 +43,12 @@ export type FieldTypeConfigField = {
   key: string;
   label: string;
   required?: boolean;
-  type: 'select' | 'dictionary';
+  type: 'select' | 'dictionary' | 'layer' | 'field' | 'text';
   options?: Array<{ code: string; label: string }>;
   /** Chỉ với measurement — chọn loại đo trước khi chọn unit */
   dependsOn?: { key: string; value: string };
+  /** Chỉ với field selector — đọc fields từ layer id trong dataSchema[key]. */
+  sourceLayerKey?: string;
 };
 
 export const FIELD_TYPE_CATALOG: Array<{
@@ -165,6 +168,68 @@ export const FIELD_TYPE_CATALOG: Array<{
   },
   { type: 'reference', label: 'Liên kết bản ghi', uiComponent: 'reference' },
   {
+    type: 'relationship',
+    label: 'Quan hệ',
+    uiComponent: 'relationship',
+    valueShape: {
+      value: 'feature_id',
+      label: 'string',
+    },
+    configFields: [
+      {
+        key: 'relationType',
+        label: 'Loại quan hệ',
+        required: true,
+        type: 'select',
+        options: [
+          { code: 'many-to-one', label: 'Many-to-One' },
+          { code: 'one-to-many', label: 'One-to-Many' },
+          { code: 'many-to-many', label: 'Many-to-Many' },
+        ],
+      },
+      {
+        key: 'targetLayerId',
+        label: 'Target Table / Layer',
+        required: true,
+        type: 'layer',
+      },
+      {
+        key: 'foreignKey',
+        label: 'Foreign Key field',
+        required: false,
+        type: 'text',
+      },
+      {
+        key: 'targetDisplayField',
+        label: 'Display Field',
+        required: true,
+        type: 'field',
+        sourceLayerKey: 'targetLayerId',
+      },
+      {
+        key: 'matchField',
+        label: 'Match Field khi import',
+        required: false,
+        type: 'field',
+        sourceLayerKey: 'targetLayerId',
+      },
+      {
+        key: 'notFoundAction',
+        label: 'Nếu import không tìm thấy',
+        required: false,
+        type: 'select',
+        options: [
+          { code: 'error', label: 'Báo lỗi' },
+          { code: 'skip', label: 'Bỏ qua dòng' },
+          {
+            code: 'create_parent',
+            label: 'Tự tạo bản ghi cha (thiết kế trước)',
+          },
+        ],
+      },
+    ],
+  },
+  {
     type: 'lat_lng',
     label: 'Toạ độ',
     uiComponent: 'lat_lng',
@@ -204,4 +269,10 @@ export const FIELD_TYPE_CATALOG: Array<{
 
 export type GeometryKind = (typeof GEOMETRY_KINDS)[number];
 
-export { MONEY_UNITS, DISTANCE_UNITS, AREA_UNITS, QUANTITY_UNITS, MEASUREMENT_TYPES };
+export {
+  MONEY_UNITS,
+  DISTANCE_UNITS,
+  AREA_UNITS,
+  QUANTITY_UNITS,
+  MEASUREMENT_TYPES,
+};

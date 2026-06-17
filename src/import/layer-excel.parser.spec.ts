@@ -154,10 +154,7 @@ describe('layer-excel.parser', () => {
 
     const columns = inspectLayerImportWorkbookColumns(filePath);
 
-    expect(columns.map((column) => column.code)).toEqual([
-      'ten',
-      'duong_kinh',
-    ]);
+    expect(columns.map((column) => column.code)).toEqual(['ten', 'duong_kinh']);
     expect(columns[1].values).toEqual(['1200', '1500']);
     expect(estimateLayerImportWorkbookRowCount(filePath)).toBe(2);
   });

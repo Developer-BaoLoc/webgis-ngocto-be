@@ -19,7 +19,10 @@ import { UpdateLayerDto } from './dto/update-layer.dto';
 import { CreateFieldDto } from './dto/create-field.dto';
 import { UpdateFieldDto } from './dto/update-field.dto';
 import { FIELD_TYPE_CATALOG } from './constants/metadata.constants';
-import { FIELD_DISPLAY_SCHEMA_OPTIONS, MAP_POPUP_DISPLAY_GROUP } from './constants/field-display.constants';
+import {
+  FIELD_DISPLAY_SCHEMA_OPTIONS,
+  MAP_POPUP_DISPLAY_GROUP,
+} from './constants/field-display.constants';
 import {
   GEOMETRY_KIND_TO_TYPE,
   GEOMETRY_TYPE_TO_KIND,
@@ -224,10 +227,7 @@ export class MetadataService {
         geometryType,
         mergedStyle,
       );
-      const styleConfig = buildStyleConfig(
-        geometryType,
-        resolvedStyle,
-      );
+      const styleConfig = buildStyleConfig(geometryType, resolvedStyle);
 
       if (dto.geometryType !== undefined) {
         const countRows = await this.dataSource.query(
@@ -243,7 +243,7 @@ export class MetadataService {
         layer.geometryKind = GEOMETRY_TYPE_TO_KIND[dto.geometryType];
       }
 
-      layer.styleConfig = styleConfig as unknown as Record<string, unknown>;
+      layer.styleConfig = styleConfig;
     }
 
     await this.layersRepository.save(layer);
@@ -524,11 +524,17 @@ export class MetadataService {
       schemaId,
       userId,
     );
-    const code = await generateUniqueFieldCode(
-      this.fieldsRepository,
-      schema.layerId,
-      dto.label,
-    );
+    const requestedRelationshipCode =
+      dto.fieldType === 'relationship'
+        ? slugifyFieldCode(String(dto.dataSchema?.foreignKey ?? ''))
+        : '';
+    const code =
+      requestedRelationshipCode ||
+      (await generateUniqueFieldCode(
+        this.fieldsRepository,
+        schema.layerId,
+        dto.label,
+      ));
 
     const dupSchemaField = await this.schemaFieldsRepository.findOne({
       where: { schemaVersionId: schema.id, code },
@@ -594,9 +600,7 @@ export class MetadataService {
         label: input.label?.trim() || code,
         dataSchema: {
           ...(input.dataSchema ?? {}),
-          ...(input.required !== undefined
-            ? { required: input.required }
-            : {}),
+          ...(input.required !== undefined ? { required: input.required } : {}),
         },
       };
     });
@@ -665,7 +669,11 @@ export class MetadataService {
     const nextFieldType = dto.fieldType ?? schemaField.fieldType;
     const nextDataSchema =
       dto.dataSchema !== undefined ? dto.dataSchema : schemaField.dataSchema;
-    await this.assertFieldDataSchema(tenantId, nextFieldType, nextDataSchema ?? {});
+    await this.assertFieldDataSchema(
+      tenantId,
+      nextFieldType,
+      nextDataSchema ?? {},
+    );
 
     if (dto.label !== undefined) schemaField.label = dto.label;
     if (dto.fieldType !== undefined) schemaField.fieldType = dto.fieldType;
@@ -898,8 +906,7 @@ export class MetadataService {
         dataSchema: input.dataSchema,
         uiSchema: input.uiSchema,
         displaySchema: input.displaySchema,
-        sortOrder:
-          input.sortOrder ?? parseInt(maxOrder?.max ?? '0', 10) + 1,
+        sortOrder: input.sortOrder ?? parseInt(maxOrder?.max ?? '0', 10) + 1,
       }),
     );
   }
@@ -1095,7 +1102,10 @@ export class MetadataService {
     };
   }
 
-  private toLayerDetail(layer: LayerEntity, draftSchemaId: string | null = null) {
+  private toLayerDetail(
+    layer: LayerEntity,
+    draftSchemaId: string | null = null,
+  ) {
     const schemaStatus = layer.currentSchemaVersionId
       ? draftSchemaId
         ? 'draft'
@@ -1172,6 +1182,58 @@ export class MetadataService {
           `Danh mục không tồn tại: ${dictionaryCode}. Tạo danh mục trước khi gắn vào field.`,
         );
       }
+    }
+
+    if (fieldType === 'relationship') {
+      await this.assertRelationshipDataSchema(tenantId, dataSchema);
+    }
+  }
+
+  private async assertRelationshipDataSchema(
+    tenantId: string,
+    dataSchema: Record<string, unknown>,
+  ) {
+    const targetLayerId = String(dataSchema.targetLayerId ?? '').trim();
+    const targetLayerCode = String(
+      dataSchema.targetLayerCode ?? dataSchema.targetTable ?? '',
+    ).trim();
+    const targetLayer = targetLayerId
+      ? await this.findLayer(tenantId, targetLayerId)
+      : await this.layersRepository.findOne({
+          where: { tenantId, code: targetLayerCode, isActive: true },
+        });
+
+    if (!targetLayer) {
+      throw new BadRequestException(
+        `Target layer không tồn tại: ${targetLayerId || targetLayerCode}`,
+      );
+    }
+
+    const schema = await this.getPublishedSchema(tenantId, targetLayer.id);
+    const targetFields = new Set(schema.fields.map((field) => field.code));
+    const assertTargetField = (fieldCode: string, label: string) => {
+      if (fieldCode === 'id') return;
+      if (!targetFields.has(fieldCode)) {
+        throw new BadRequestException(
+          `${label} không tồn tại trong target layer: ${fieldCode}`,
+        );
+      }
+    };
+
+    const displayField = String(
+      dataSchema.targetDisplayField ?? dataSchema.displayField ?? '',
+    ).trim();
+    assertTargetField(displayField, 'Display field');
+
+    const matchField = String(dataSchema.matchField ?? '').trim();
+    if (matchField) {
+      assertTargetField(matchField, 'Match field');
+    }
+
+    const relationType = String(dataSchema.relationType ?? '').trim();
+    const foreignKey = String(dataSchema.foreignKey ?? '').trim();
+    if (relationType === 'one-to-many' && foreignKey) {
+      assertTargetField(foreignKey, 'Foreign key field');
     }
   }
 }

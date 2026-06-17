@@ -86,11 +86,7 @@ export class RecordsController {
       user.tenantId,
       layerId,
       user.id,
-      body as {
-        properties?: Record<string, unknown>;
-        geometry?: unknown;
-        administrativeUnitId?: string;
-      },
+      body,
     );
     return apiResponse(record, { requestId });
   }
@@ -143,11 +139,7 @@ export class RecordsController {
       layerId,
       recordId,
       user.id,
-      body as {
-        properties?: Record<string, unknown>;
-        geometry?: unknown | null;
-        rowVersion?: number;
-      },
+      body,
     );
     return apiResponse(record, { requestId });
   }

@@ -202,14 +202,17 @@ export class AnalyticsService {
 
     const dto: AnalyticsQueryDto = {
       layerId: String(dataSourceConfig.layerId),
-      aggregation: (dataSourceConfig.aggregation as AnalyticsQueryDto['aggregation']) ?? 'count',
+      aggregation:
+        (dataSourceConfig.aggregation as AnalyticsQueryDto['aggregation']) ??
+        'count',
       fieldCode: dataSourceConfig.fieldCode
         ? String(dataSourceConfig.fieldCode)
         : undefined,
       groupByFieldCode: dataSourceConfig.groupByFieldCode
         ? String(dataSourceConfig.groupByFieldCode)
         : undefined,
-      filters: (dataSourceConfig.filters as AnalyticsFilterDto[] | undefined) ?? [],
+      filters:
+        (dataSourceConfig.filters as AnalyticsFilterDto[] | undefined) ?? [],
       globalFilters,
       limit:
         typeof dataSourceConfig.limit === 'number'
@@ -300,7 +303,10 @@ export class AnalyticsService {
     return 'FROM features f';
   }
 
-  private buildGroupLabelExtract(fieldCode: string, field: SchemaField): string {
+  private buildGroupLabelExtract(
+    fieldCode: string,
+    field: SchemaField,
+  ): string {
     this.assertFieldCode(fieldCode);
 
     if (field.fieldType === 'multi_category') {
@@ -346,7 +352,7 @@ export class AnalyticsService {
     }
 
     if (typeof value === 'object' && value !== null && 'code' in value) {
-      return String((value as { code: unknown }).code);
+      return String(value.code);
     }
 
     return String(value);

@@ -30,7 +30,10 @@ export type FieldValidationError = {
 
 export interface FieldTypeHandler {
   type: string;
-  validate(value: unknown, config: Record<string, unknown>): FieldValidationError | null;
+  validate(
+    value: unknown,
+    config: Record<string, unknown>,
+  ): FieldValidationError | null;
   normalize(value: unknown, config: Record<string, unknown>): unknown;
 }
 
@@ -122,9 +125,7 @@ const moneyHandler: FieldTypeHandler = {
         (typeof value === 'object' && value !== null && 'unit' in value
           ? (value as { unit?: string }).unit
           : null) ??
-          (typeof value === 'object' &&
-          value !== null &&
-          'sourceUnit' in value
+          (typeof value === 'object' && value !== null && 'sourceUnit' in value
             ? (value as { sourceUnit?: string }).sourceUnit
             : null) ??
           config.unit ??
@@ -189,6 +190,39 @@ const categoryHandler: FieldTypeHandler = {
 
 const textareaHandler: FieldTypeHandler = { ...textHandler, type: 'textarea' };
 const phoneHandler: FieldTypeHandler = { ...textHandler, type: 'phone' };
+const relationshipHandler: FieldTypeHandler = {
+  type: 'relationship',
+  validate(value, config) {
+    if (config.required && isEmpty(value)) {
+      return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
+    }
+    if (isEmpty(value)) return null;
+    if (typeof value === 'string' && value.trim()) return null;
+    if (typeof value === 'object' && value !== null) {
+      const raw =
+        (value as { value?: unknown; id?: unknown }).value ??
+        (value as { id?: unknown }).id;
+      if (typeof raw === 'string' && raw.trim()) return null;
+    }
+    return {
+      field: '',
+      code: 'INVALID_RELATIONSHIP',
+      message: 'Phải chọn một bản ghi liên kết hợp lệ',
+    };
+  },
+  normalize(value) {
+    if (isEmpty(value)) return null;
+    if (typeof value === 'object' && value !== null) {
+      const raw =
+        (value as { value?: unknown; id?: unknown }).value ??
+        (value as { id?: unknown }).id;
+      return raw === null || raw === undefined || raw === ''
+        ? null
+        : String(raw);
+    }
+    return String(value).trim();
+  },
+};
 const quantityHandler: FieldTypeHandler = {
   type: 'quantity',
   validate(value, config) {
@@ -217,7 +251,10 @@ const quantityHandler: FieldTypeHandler = {
 const multiCategoryHandler: FieldTypeHandler = {
   type: 'multi_category',
   validate(value, config) {
-    if (config.required && (isEmpty(value) || (Array.isArray(value) && value.length === 0))) {
+    if (
+      config.required &&
+      (isEmpty(value) || (Array.isArray(value) && value.length === 0))
+    ) {
       return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
     }
     return null;
@@ -312,7 +349,8 @@ const areaPolygonHandler: FieldTypeHandler = {
       return {
         field: '',
         code: 'INVALID_TYPE',
-        message: 'Phải là { coordinates: [{ lat, lng }, ...] } với ít nhất 3 điểm',
+        message:
+          'Phải là { coordinates: [{ lat, lng }, ...] } với ít nhất 3 điểm',
       };
     }
 
@@ -336,6 +374,7 @@ const HANDLERS: Record<string, FieldTypeHandler> = {
   multi_category: multiCategoryHandler,
   phone: phoneHandler,
   quantity: quantityHandler,
+  relationship: relationshipHandler,
   lat_lng: latLngHandler,
   area_polygon: areaPolygonHandler,
   image: imageHandler,

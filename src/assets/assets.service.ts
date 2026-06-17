@@ -115,7 +115,9 @@ export class AssetsService implements OnModuleInit {
       sizeBytes: number;
     }> = [];
     for (const file of files) {
-      items.push(await this.uploadAttachment(tenantId, userId, file, 'field-image'));
+      items.push(
+        await this.uploadAttachment(tenantId, userId, file, 'field-image'),
+      );
     }
     return { items, count: items.length };
   }
@@ -141,7 +143,9 @@ export class AssetsService implements OnModuleInit {
       sizeBytes: number;
     }> = [];
     for (const file of files) {
-      items.push(await this.uploadAttachment(tenantId, userId, file, 'field-file'));
+      items.push(
+        await this.uploadAttachment(tenantId, userId, file, 'field-file'),
+      );
     }
     return { items, count: items.length };
   }

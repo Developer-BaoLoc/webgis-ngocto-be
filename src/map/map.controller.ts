@@ -19,7 +19,8 @@ export class MapController {
     @Query('layerId') layerId?: string,
     @RequestId() requestId?: string,
   ) {
-    const tenantId = this.configService.get('tenant.defaultId', { infer: true }) ?? '';
+    const tenantId =
+      this.configService.get('tenant.defaultId', { infer: true }) ?? '';
     const payload = await this.mapService.getMapGeoJson(tenantId, layerId);
     return apiResponse(payload, { requestId });
   }

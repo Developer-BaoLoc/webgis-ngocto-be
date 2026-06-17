@@ -28,7 +28,12 @@ function stripAccents(value: string): string {
 }
 
 function normalizeText(value: string): string {
-  return stripAccents(value.toLowerCase().trim().replace(/^kv\s*/i, ''));
+  return stripAccents(
+    value
+      .toLowerCase()
+      .trim()
+      .replace(/^kv\s*/i, ''),
+  );
 }
 
 export function normalizeKhuVuc(
@@ -37,7 +42,10 @@ export function normalizeKhuVuc(
 ): string | string[] | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const text = String(raw);
-  const parts = text.split(/[,+]/).map((p) => normalizeText(p)).filter(Boolean);
+  const parts = text
+    .split(/[,+]/)
+    .map((p) => normalizeText(p))
+    .filter(Boolean);
   const codes: string[] = [];
 
   for (const part of parts) {

@@ -16,7 +16,8 @@ export const POPUP_FONT_SIZE_OPTIONS = [
   { code: 'large', label: 'Lớn' },
 ] as const;
 
-export type PopupFontSizeCode = (typeof POPUP_FONT_SIZE_OPTIONS)[number]['code'];
+export type PopupFontSizeCode =
+  (typeof POPUP_FONT_SIZE_OPTIONS)[number]['code'];
 
 export const MAP_POPUP_DISPLAY_GROUP = {
   key: 'mapPopup',

@@ -10,13 +10,15 @@ export class ImportProcessor extends WorkerHost {
 
   async process(job: Job): Promise<unknown> {
     if (job.name === 'execute') {
-      return this.importService.processImportJob(job.data as {
-        tenantId: string;
-        userId: string;
-        importId: string;
-        jobId: string;
-        templateCode: string;
-      });
+      return this.importService.processImportJob(
+        job.data as {
+          tenantId: string;
+          userId: string;
+          importId: string;
+          jobId: string;
+          templateCode: string;
+        },
+      );
     }
     return null;
   }

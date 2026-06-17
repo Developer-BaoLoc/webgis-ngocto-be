@@ -38,18 +38,24 @@ export function isPopupField(field: SchemaFieldLike): boolean {
   return isShowOnMapPopupField(field);
 }
 
-export function selectPopupFields(fields: SchemaFieldLike[]): SchemaFieldLike[] {
+export function selectPopupFields(
+  fields: SchemaFieldLike[],
+): SchemaFieldLike[] {
   return [...fields]
     .filter(isPopupField)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
-export function selectDetailFields(fields: SchemaFieldLike[]): SchemaFieldLike[] {
+export function selectDetailFields(
+  fields: SchemaFieldLike[],
+): SchemaFieldLike[] {
   return [...fields].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 }
 
 /** Cột hiển thị trên bảng dữ liệu — bỏ ảnh/tệp (xem trong chi tiết). */
-export function selectTableFields(fields: SchemaFieldLike[]): SchemaFieldLike[] {
+export function selectTableFields(
+  fields: SchemaFieldLike[],
+): SchemaFieldLike[] {
   return selectDetailFields(fields).filter(
     (field) => !['image', 'file'].includes(field.fieldType),
   );
@@ -98,7 +104,11 @@ export function formatFieldValue(
     return '—';
   }
 
-  if (field.fieldType === 'lat_lng' && typeof value === 'object' && value !== null) {
+  if (
+    field.fieldType === 'lat_lng' &&
+    typeof value === 'object' &&
+    value !== null
+  ) {
     const lat = (value as { lat?: unknown }).lat;
     const lng = (value as { lng?: unknown }).lng;
     if (lat !== undefined && lng !== undefined) {
@@ -106,7 +116,11 @@ export function formatFieldValue(
     }
   }
 
-  if (field.fieldType === 'area_polygon' && typeof value === 'object' && value !== null) {
+  if (
+    field.fieldType === 'area_polygon' &&
+    typeof value === 'object' &&
+    value !== null
+  ) {
     const coordinates = (value as { coordinates?: unknown }).coordinates;
     if (Array.isArray(coordinates)) {
       return `${coordinates.length} điểm`;
@@ -128,6 +142,49 @@ export function formatFieldValue(
       .join('\n');
   }
 
+  if (field.fieldType === 'relationship') {
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '—';
+      return value
+        .map((item) => {
+          if (item && typeof item === 'object') {
+            const label = (item as { label?: unknown }).label;
+            if (label !== undefined && label !== null && String(label).trim()) {
+              return `- ${String(label)}`;
+            }
+          }
+          return `- ${String(item)}`;
+        })
+        .join('\n');
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const relation = value as {
+        label?: unknown;
+        status?: unknown;
+        message?: unknown;
+        rawValue?: unknown;
+        foreignKey?: unknown;
+      };
+      if (relation.status === 'empty') return 'Chưa liên kết';
+      if (relation.status === 'not_found') {
+        return String(
+          relation.message ??
+            `Không tìm thấy bản ghi cha. Giá trị ${String(relation.foreignKey ?? field.code)} hiện tại là: ${String(relation.rawValue ?? '')}`,
+        );
+      }
+
+      const label = relation.label;
+      if (label !== undefined && label !== null && String(label).trim()) {
+        return String(label);
+      }
+      const raw =
+        (value as { value?: unknown; id?: unknown }).value ??
+        (value as { id?: unknown }).id;
+      if (raw !== undefined && raw !== null) return String(raw);
+    }
+  }
+
   if (field.fieldType === 'money') {
     return formatMoneyDisplayValue(
       value,
@@ -135,8 +192,16 @@ export function formatFieldValue(
     );
   }
 
-  if (field.fieldType === 'measurement' && typeof value === 'object' && value !== null) {
-    const obj = value as { value?: number; unit?: string; measurementType?: string };
+  if (
+    field.fieldType === 'measurement' &&
+    typeof value === 'object' &&
+    value !== null
+  ) {
+    const obj = value as {
+      value?: number;
+      unit?: string;
+      measurementType?: string;
+    };
     if (typeof obj.value === 'number') {
       const measurementType = String(
         obj.measurementType ?? field.dataSchema.measurementType ?? 'area',
@@ -157,7 +222,9 @@ export function formatFieldValue(
       }
     }
     if (typeof value === 'number') {
-      const unitLabel = getQuantityUnitLabel(String(field.dataSchema.unit ?? 'kg'));
+      const unitLabel = getQuantityUnitLabel(
+        String(field.dataSchema.unit ?? 'kg'),
+      );
       return `${value.toLocaleString('vi-VN')} ${unitLabel}`;
     }
   }

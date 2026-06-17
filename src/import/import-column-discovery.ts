@@ -69,9 +69,10 @@ export function normalizeImportColumnCode(value: string): string {
   return slugifyFieldCode(value);
 }
 
-export function suggestImportFieldType(
-  values: unknown[],
-): { suggestedType: ImportNewFieldType; confidence: number } {
+export function suggestImportFieldType(values: unknown[]): {
+  suggestedType: ImportNewFieldType;
+  confidence: number;
+} {
   const samples = values.filter((value) => !isEmpty(value)).slice(0, 20);
   if (samples.length === 0) {
     return { suggestedType: 'text', confidence: 0.5 };

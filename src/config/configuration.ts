@@ -1,6 +1,8 @@
 export default () => ({
   port: parseInt(process.env.PORT ?? '4000', 10),
-  apiPublicUrl: process.env.API_PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? '4000'}`,
+  apiPublicUrl:
+    process.env.API_PUBLIC_URL ??
+    `http://localhost:${process.env.PORT ?? '4000'}`,
   nodeEnv: process.env.NODE_ENV ?? 'development',
   ward: {
     name: process.env.WARD_NAME ?? 'Long Bình',
@@ -16,8 +18,12 @@ export default () => ({
     boundary: {
       datasetFile: process.env.WARD_BOUNDARY_DATASET ?? 'can-tho.geojson',
       matchProperty: process.env.WARD_BOUNDARY_MATCH_PROPERTY ?? 'ten_xa',
-      matchValue: process.env.WARD_BOUNDARY_MATCH_VALUE ?? process.env.WARD_NAME ?? 'Long Bình',
-      adminCodeProperty: process.env.WARD_BOUNDARY_ADMIN_CODE_PROPERTY ?? 'ma_xa',
+      matchValue:
+        process.env.WARD_BOUNDARY_MATCH_VALUE ??
+        process.env.WARD_NAME ??
+        'Long Bình',
+      adminCodeProperty:
+        process.env.WARD_BOUNDARY_ADMIN_CODE_PROPERTY ?? 'ma_xa',
       adminCode: process.env.WARD_BOUNDARY_ADMIN_CODE ?? '31473',
     },
   },

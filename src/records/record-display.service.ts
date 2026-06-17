@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DictionariesService } from '../dictionaries/dictionaries.service';
 import { MetadataService } from '../metadata/metadata.service';
+import { RelationshipService } from '../metadata/relationship.service';
 import {
   buildRecordDisplayFields,
   buildRecordTableCells,
@@ -30,6 +31,7 @@ export class RecordDisplayService {
   constructor(
     private readonly metadataService: MetadataService,
     private readonly dictionariesService: DictionariesService,
+    private readonly relationshipService: RelationshipService,
   ) {}
 
   async buildDisplay(
@@ -39,11 +41,21 @@ export class RecordDisplayService {
     properties: Record<string, unknown>,
   ): Promise<RecordDisplayPayload> {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
     const dictionaryLabelsByField = await this.resolveDictionaryLabels(
       tenantId,
-      schema.fields as SchemaFieldLike[],
+      schema.fields,
     );
+    const decoratedProperties =
+      await this.relationshipService.decorateRecordProperties(
+        tenantId,
+        schema.fields,
+        properties,
+        recordId,
+      );
 
     return {
       recordId,
@@ -51,14 +63,14 @@ export class RecordDisplayService {
       layerCode: layer.code,
       layerName: layer.name,
       popup: buildRecordDisplayFields(
-        schema.fields as SchemaFieldLike[],
-        properties,
+        schema.fields,
+        decoratedProperties,
         dictionaryLabelsByField,
         'popup',
       ),
       detail: buildRecordDisplayFields(
-        schema.fields as SchemaFieldLike[],
-        properties,
+        schema.fields,
+        decoratedProperties,
         dictionaryLabelsByField,
         'detail',
       ),
@@ -69,21 +81,32 @@ export class RecordDisplayService {
     tenantId: string,
     layerId: string,
     properties: Record<string, unknown>,
+    recordId?: string,
   ) {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
     const dictionaryLabelsByField = await this.resolveDictionaryLabels(
       tenantId,
-      schema.fields as SchemaFieldLike[],
+      schema.fields,
     );
+    const decoratedProperties =
+      await this.relationshipService.decorateRecordProperties(
+        tenantId,
+        schema.fields,
+        properties,
+        recordId,
+      );
 
     return {
       layerId,
       layerCode: layer.code,
       layerName: layer.name,
       fields: buildRecordDisplayFields(
-        schema.fields as SchemaFieldLike[],
-        properties,
+        schema.fields,
+        decoratedProperties,
         dictionaryLabelsByField,
         'popup',
       ),
@@ -95,7 +118,10 @@ export class RecordDisplayService {
     layerId: string,
   ): Promise<RecordListTableContext> {
     await this.metadataService.getLayerById(tenantId, layerId);
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
     const fields = schema.fields as SchemaFieldLike[];
     const dictionaryLabelsByField = await this.resolveDictionaryLabels(
       tenantId,

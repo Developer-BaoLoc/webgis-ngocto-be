@@ -1,6 +1,4 @@
-import {
-  getMoneyMultiplier,
-} from '../../metadata/constants/field-units.constants';
+import { getMoneyMultiplier } from '../../metadata/constants/field-units.constants';
 import { normalizeMoneyUnitCode } from './money-display.util';
 
 function stripAccents(value: string): string {
@@ -101,10 +99,7 @@ export function parseMoneyImportValue(
     }
 
     if ('value' in raw) {
-      return parseMoneyImportValue(
-        (raw as { value: unknown }).value,
-        schemaUnit,
-      );
+      return parseMoneyImportValue(raw.value, schemaUnit);
     }
 
     if ('amount' in raw) {
@@ -179,11 +174,18 @@ export function extractMoneySourceAmount(
       currency?: string;
     };
 
-    if (typeof obj.sourceValue === 'number' && Number.isFinite(obj.sourceValue)) {
+    if (
+      typeof obj.sourceValue === 'number' &&
+      Number.isFinite(obj.sourceValue)
+    ) {
       return obj.sourceValue;
     }
 
-    if (typeof obj.value === 'number' && Number.isFinite(obj.value) && !('amount' in obj)) {
+    if (
+      typeof obj.value === 'number' &&
+      Number.isFinite(obj.value) &&
+      !('amount' in obj)
+    ) {
       return obj.value;
     }
 

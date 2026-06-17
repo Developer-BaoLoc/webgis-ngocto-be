@@ -30,6 +30,7 @@ import {
 } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/api.types';
 import { apiResponse } from '../common/utils/api-response.util';
+import { assertAdminUser } from '../common/utils/admin-role.util';
 
 const uploadDir = path.join(process.cwd(), 'uploads', 'imports');
 
@@ -63,7 +64,8 @@ export class GeoJsonImportController {
           cb(null, uploadDir);
         },
         filename: (_req, file, cb) => {
-          const ext = path.extname(file.originalname).toLowerCase() || '.geojson';
+          const ext =
+            path.extname(file.originalname).toLowerCase() || '.geojson';
           cb(null, `${randomUUID()}${ext}`);
         },
       }),
@@ -107,6 +109,9 @@ export class GeoJsonImportController {
     @Body() dto: GeoJsonImportOptionsDto,
     @RequestId() requestId?: string,
   ) {
+    if (dto.newFields?.some((field) => field.fieldType === 'relationship')) {
+      assertAdminUser(user);
+    }
     const result = await this.geoJsonImportService.execute(
       user.tenantId,
       layerId,

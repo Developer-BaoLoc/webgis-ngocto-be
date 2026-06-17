@@ -2,11 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppConfig } from '../../config/configuration';
 import { BaseGisLayerService } from '../../common/abstracts/base-gis-layer.service';
-import {
-  GisLayerType,
-  LayerStatus,
-  LAYER_DISPLAY_NAMES,
-} from '../../common';
+import { GisLayerType, LayerStatus, LAYER_DISPLAY_NAMES } from '../../common';
 import { GeometryType } from '../../common/enums/geometry-type.enum';
 import { WardBoundaryService } from '../../ward-boundary/ward-boundary.service';
 

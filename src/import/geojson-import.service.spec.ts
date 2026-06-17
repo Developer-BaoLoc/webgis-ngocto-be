@@ -14,7 +14,9 @@ describe('geojson-import helpers', () => {
       expect(geometryMatchesKind('LineString', 'linestring')).toBe(true);
       expect(geometryMatchesKind('MultiLineString', 'linestring')).toBe(false);
       expect(geometryMatchesKind('LineString', 'multilinestring')).toBe(true);
-      expect(geometryMatchesKind('MultiLineString', 'multilinestring')).toBe(true);
+      expect(geometryMatchesKind('MultiLineString', 'multilinestring')).toBe(
+        true,
+      );
     });
 
     it('matches polygon and multipolygon according to layer geometry kind', () => {

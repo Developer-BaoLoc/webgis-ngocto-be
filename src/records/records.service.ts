@@ -26,6 +26,7 @@ import {
   resolvePolygonFromAreaFields,
 } from './utils/area-polygon-geometry.util';
 import { RecordDisplayService } from './record-display.service';
+import { RelationshipService } from '../metadata/relationship.service';
 import {
   parseRecordListQuery,
   ParsedRecordListQuery,
@@ -46,14 +47,19 @@ export class RecordsService implements OnModuleInit {
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly recordDisplayService: RecordDisplayService,
+    private readonly relationshipService: RelationshipService,
   ) {}
 
   async onModuleInit() {
-    const tenantId = this.configService.get('tenant.defaultId', { infer: true });
+    const tenantId = this.configService.get('tenant.defaultId', {
+      infer: true,
+    });
     try {
       const synced = await this.backfillGeocodedGeometries(tenantId);
       if (synced > 0) {
-        this.logger.log(`Đã đồng bộ geometry cho ${synced} bản ghi từ trường toạ độ/vùng`);
+        this.logger.log(
+          `Đã đồng bộ geometry cho ${synced} bản ghi từ trường toạ độ/vùng`,
+        );
       }
     } catch (error) {
       this.logger.warn(
@@ -62,14 +68,11 @@ export class RecordsService implements OnModuleInit {
     }
   }
 
-  async listRecords(
-    tenantId: string,
-    layerId: string,
-    query: RecordListQuery,
-  ) {
+  async listRecords(tenantId: string, layerId: string, query: RecordListQuery) {
     await this.metadataService.getLayerById(tenantId, layerId);
 
-    const { page, pageSize, sortBy, sortOrder, q } = parseRecordListQuery(query);
+    const { page, pageSize, sortBy, sortOrder, q } =
+      parseRecordListQuery(query);
     const skip = (page - 1) * pageSize;
     const tableContext = await this.recordDisplayService.buildListTableContext(
       tenantId,
@@ -91,14 +94,28 @@ export class RecordsService implements OnModuleInit {
 
     const [items, total] = await qb.skip(skip).take(pageSize).getManyAndCount();
 
+    const decoratedItems = await Promise.all(
+      items.map(async (feature) => {
+        const properties =
+          await this.relationshipService.decorateRecordProperties(
+            tenantId,
+            tableContext.fields,
+            feature.properties,
+            feature.id,
+          );
+        return {
+          ...this.toRecordResponse(feature),
+          properties,
+          cells: this.recordDisplayService.buildTableCells(
+            tableContext,
+            properties,
+          ),
+        };
+      }),
+    );
+
     return {
-      items: items.map((feature) => ({
-        ...this.toRecordResponse(feature),
-        cells: this.recordDisplayService.buildTableCells(
-          tableContext,
-          feature.properties,
-        ),
-      })),
+      items: decoratedItems,
       columns: tableContext.columns,
       page,
       pageSize,
@@ -113,6 +130,7 @@ export class RecordsService implements OnModuleInit {
     let schemaFields: Array<{
       code: string;
       fieldType: string;
+      dataSchema: Record<string, unknown>;
       sortOrder?: number;
     }> = [];
 
@@ -176,12 +194,18 @@ export class RecordsService implements OnModuleInit {
     },
   ) {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
 
     const properties = body.properties ?? {};
     const errors = validateProperties(schema.fields, properties);
     if (errors.length > 0) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', details: errors });
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        details: errors,
+      });
     }
 
     const normalized = normalizeProperties(schema.fields, properties);
@@ -190,7 +214,10 @@ export class RecordsService implements OnModuleInit {
     let locationStatus = geometry ? 'located' : 'unlocated';
     let geometrySource: string | null = geometry ? 'drawn' : null;
 
-    if (!geometry && (layer.geometryKind === 'point' || layer.geometryType === 'point')) {
+    if (
+      !geometry &&
+      (layer.geometryKind === 'point' || layer.geometryType === 'point')
+    ) {
       const pointFromField = resolvePointFromLatLngFields(
         schema.fields,
         normalized,
@@ -246,7 +273,10 @@ export class RecordsService implements OnModuleInit {
     },
   ) {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
 
     const properties = body.properties ?? {};
     const importFields = fieldsForImportValidation(schema.fields);
@@ -256,7 +286,10 @@ export class RecordsService implements OnModuleInit {
       buildUnitHints(schema.fields),
     );
     if (errors.length > 0) {
-      throw new BadRequestException({ code: 'VALIDATION_ERROR', details: errors });
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        details: errors,
+      });
     }
 
     const normalized = normalizeProperties(
@@ -269,7 +302,10 @@ export class RecordsService implements OnModuleInit {
     let locationStatus = geometry ? 'located' : 'unlocated';
     let geometrySource: string | null = geometry ? 'drawn' : null;
 
-    if (!geometry && (layer.geometryKind === 'point' || layer.geometryType === 'point')) {
+    if (
+      !geometry &&
+      (layer.geometryKind === 'point' || layer.geometryType === 'point')
+    ) {
       const pointFromField = resolvePointFromLatLngFields(
         schema.fields,
         normalized,
@@ -326,10 +362,16 @@ export class RecordsService implements OnModuleInit {
     },
   ) {
     const feature = await this.findFeature(tenantId, layerId, recordId);
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layerId);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layerId,
+    );
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
 
-    if (body.rowVersion !== undefined && body.rowVersion !== feature.rowVersion) {
+    if (
+      body.rowVersion !== undefined &&
+      body.rowVersion !== feature.rowVersion
+    ) {
       throw new BadRequestException({
         code: 'VERSION_CONFLICT',
         message: 'Bản ghi đã được cập nhật bởi người khác',
@@ -340,7 +382,10 @@ export class RecordsService implements OnModuleInit {
       const merged = { ...feature.properties, ...body.properties };
       const errors = validateProperties(schema.fields, merged);
       if (errors.length > 0) {
-        throw new BadRequestException({ code: 'VALIDATION_ERROR', details: errors });
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          details: errors,
+        });
       }
       feature.properties = normalizeProperties(schema.fields, merged);
     }
@@ -354,7 +399,11 @@ export class RecordsService implements OnModuleInit {
         feature.locationStatus = 'unlocated';
         feature.geometrySource = null;
       } else {
-        await this.updateGeometry(feature.id, body.geometry, layer.geometryKind);
+        await this.updateGeometry(
+          feature.id,
+          body.geometry,
+          layer.geometryKind,
+        );
         feature.locationStatus = 'located';
         feature.geometrySource = 'drawn';
       }
@@ -386,7 +435,12 @@ export class RecordsService implements OnModuleInit {
     return this.getRecord(tenantId, layerId, recordId);
   }
 
-  async deleteRecord(tenantId: string, layerId: string, recordId: string, userId: string) {
+  async deleteRecord(
+    tenantId: string,
+    layerId: string,
+    recordId: string,
+    userId: string,
+  ) {
     const feature = await this.findFeature(tenantId, layerId, recordId);
     await this.featuresRepository.softDelete(feature.id);
     await this.dataSource.query(
@@ -461,6 +515,7 @@ export class RecordsService implements OnModuleInit {
     let schemaFields: Array<{
       code: string;
       fieldType: string;
+      dataSchema: Record<string, unknown>;
       sortOrder?: number;
     }> = [];
 
@@ -492,7 +547,9 @@ export class RecordsService implements OnModuleInit {
     if (options.bbox && !useGeocodedFallback) {
       const parts = options.bbox.split(',').map(Number);
       if (parts.length !== 4 || parts.some(Number.isNaN)) {
-        throw new BadRequestException('bbox phải là minLng,minLat,maxLng,maxLat');
+        throw new BadRequestException(
+          'bbox phải là minLng,minLat,maxLng,maxLat',
+        );
       }
       spatialFilter = `AND (
         (geometry IS NOT NULL AND ST_Intersects(geometry, ST_MakeEnvelope($3, $4, $5, $6, 4326)))
@@ -527,66 +584,82 @@ export class RecordsService implements OnModuleInit {
     }
 
     const features = await Promise.all(
-      rows.map(async (row: {
-        id: string;
-        geometry: unknown;
-        properties: Record<string, unknown>;
-        location_status: string;
-      }) => {
-        let geometry = row.geometry;
-        if (!geometry && useGeocodedFallback) {
-          geometry =
-            this.resolveGeometryFromProperties(
-              layer,
+      rows.map(
+        async (row: {
+          id: string;
+          geometry: unknown;
+          properties: Record<string, unknown>;
+          location_status: string;
+        }) => {
+          let geometry = row.geometry;
+          if (!geometry && useGeocodedFallback) {
+            geometry =
+              this.resolveGeometryFromProperties(
+                layer,
+                schemaFields,
+                row.properties,
+              ) ?? null;
+            if (geometry) {
+              void this.persistRecordGeometry(
+                row.id,
+                geometry,
+                layer.geometryKind,
+              );
+            }
+          }
+
+          const decoratedProperties =
+            await this.relationshipService.decorateRecordProperties(
+              tenantId,
               schemaFields,
               row.properties,
-            ) ?? null;
-          if (geometry) {
-            void this.persistRecordGeometry(row.id, geometry, layer.geometryKind);
+              row.id,
+            );
+
+          let popupSummary: Array<{
+            code: string;
+            label: string;
+            fieldType?: string;
+            displayValue: string;
+            popupStyle?: {
+              bold?: boolean;
+              fontSize?: string;
+              color?: string;
+            };
+          }> = [];
+          try {
+            const summary = await this.recordDisplayService.buildPopupSummary(
+              tenantId,
+              layerId,
+              row.properties,
+              row.id,
+            );
+            popupSummary = summary.fields.map((field) => ({
+              code: field.code,
+              label: field.label,
+              fieldType: field.fieldType,
+              displayValue: field.displayValue,
+              ...(field.popupStyle ? { popupStyle: field.popupStyle } : {}),
+            }));
+          } catch {
+            popupSummary = [];
           }
-        }
 
-        let popupSummary: Array<{
-          code: string;
-          label: string;
-          fieldType?: string;
-          displayValue: string;
-          popupStyle?: {
-            bold?: boolean;
-            fontSize?: string;
-            color?: string;
+          return {
+            type: 'Feature' as const,
+            id: row.id,
+            geometry,
+            properties: {
+              ...row.properties,
+              ...decoratedProperties,
+              location_status: row.location_status,
+              _recordId: row.id,
+              _layerId: layerId,
+              popupSummary,
+            },
           };
-        }> = [];
-        try {
-          const summary = await this.recordDisplayService.buildPopupSummary(
-            tenantId,
-            layerId,
-            row.properties,
-          );
-          popupSummary = summary.fields.map((field) => ({
-            code: field.code,
-            label: field.label,
-            fieldType: field.fieldType,
-            displayValue: field.displayValue,
-            ...(field.popupStyle ? { popupStyle: field.popupStyle } : {}),
-          }));
-        } catch {
-          popupSummary = [];
-        }
-
-        return {
-          type: 'Feature' as const,
-          id: row.id,
-          geometry,
-          properties: {
-            ...row.properties,
-            location_status: row.location_status,
-            _recordId: row.id,
-            _layerId: layerId,
-            popupSummary,
-          },
-        };
-      }),
+        },
+      ),
     );
 
     let result = features;
@@ -600,7 +673,8 @@ export class RecordsService implements OnModuleInit {
       const [minLng, minLat, maxLng, maxLat] = parts;
       result = result.filter((feature) => {
         if (!feature.geometry) return options.includeUnlocated === true;
-        const coords = (feature.geometry as { coordinates?: number[] }).coordinates;
+        const coords = (feature.geometry as { coordinates?: number[] })
+          .coordinates;
         if (!coords || coords.length < 2) return false;
         const [lng, lat] = coords;
         return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
@@ -662,7 +736,11 @@ export class RecordsService implements OnModuleInit {
           row.properties,
         );
         if (geometry) {
-          await this.persistRecordGeometry(row.id, geometry, layer.geometryKind);
+          await this.persistRecordGeometry(
+            row.id,
+            geometry,
+            layer.geometryKind,
+          );
           synced += 1;
         }
       } catch {
@@ -711,7 +789,11 @@ export class RecordsService implements OnModuleInit {
     await this.updateGeometry(featureId, geometry, geometryKind);
   }
 
-  private async findFeature(tenantId: string, layerId: string, recordId: string) {
+  private async findFeature(
+    tenantId: string,
+    layerId: string,
+    recordId: string,
+  ) {
     const feature = await this.featuresRepository.findOne({
       where: { id: recordId, tenantId, layerId },
     });

@@ -148,8 +148,9 @@ export class WardBoundaryService implements OnModuleInit {
     if (boundaryConfig.adminCode) {
       const byCode = features.find(
         (feature) =>
-          String(feature.properties?.[boundaryConfig.adminCodeProperty ?? 'ma_xa']) ===
-          boundaryConfig.adminCode,
+          String(
+            feature.properties?.[boundaryConfig.adminCodeProperty ?? 'ma_xa'],
+          ) === boundaryConfig.adminCode,
       );
       if (byCode) return byCode;
     }
@@ -157,8 +158,9 @@ export class WardBoundaryService implements OnModuleInit {
     const matchValue = boundaryConfig.matchValue ?? wardName;
     return features.find(
       (feature) =>
-        String(feature.properties?.[boundaryConfig.matchProperty] ?? '').trim() ===
-        matchValue,
+        String(
+          feature.properties?.[boundaryConfig.matchProperty] ?? '',
+        ).trim() === matchValue,
     );
   }
 

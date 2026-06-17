@@ -41,6 +41,7 @@ import {
   buildImportColumnAnalysis,
   ImportColumnAnalysis,
 } from './import-column-discovery';
+import { RelationshipService } from '../metadata/relationship.service';
 
 type DictionaryItemsCreated = {
   dictionaryCode: string;
@@ -63,6 +64,7 @@ export class LayerImportService {
     private readonly metadataService: MetadataService,
     private readonly dictionariesService: DictionariesService,
     private readonly recordsService: RecordsService,
+    private readonly relationshipService: RelationshipService,
   ) {
     fs.mkdirSync(this.uploadDir, { recursive: true });
   }
@@ -77,7 +79,8 @@ export class LayerImportService {
     const dictionaryCodes = new Set<string>();
     for (const field of schema.fields) {
       if (
-        (field.fieldType === 'category' || field.fieldType === 'multi_category') &&
+        (field.fieldType === 'category' ||
+          field.fieldType === 'multi_category') &&
         field.dataSchema.dictionary
       ) {
         dictionaryCodes.add(String(field.dataSchema.dictionary));
@@ -119,11 +122,7 @@ export class LayerImportService {
     };
   }
 
-  async upload(
-    tenantId: string,
-    layerId: string,
-    file: Express.Multer.File,
-  ) {
+  async upload(tenantId: string, layerId: string, file: Express.Multer.File) {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
     const schema = await this.metadataService.getPublishedSchema(
       tenantId,
@@ -192,9 +191,9 @@ export class LayerImportService {
     const filePath = this.resolveFilePath(importId);
     const columnAnalysis = this.analyzeImportColumns(filePath, schema);
 
-    let validated:
-      | Awaited<ReturnType<LayerImportService['validateImportFile']>>
-      | null = null;
+    let validated: Awaited<
+      ReturnType<LayerImportService['validateImportFile']>
+    > | null = null;
 
     try {
       validated = await this.validateImportFile(tenantId, layerId, importId, {
@@ -286,12 +285,17 @@ export class LayerImportService {
       );
     }
 
-    const { validatedRows, summary, schema, dedupKeys, dictionaryItemsCreated } =
-      await this.validateImportFile(tenantId, layerId, importId, {
-        persistDictionaryItems: true,
-        forceCurrentSchemaMeta: newFields.length > 0,
-        allowSchemaVersionMismatch: newFields.length > 0,
-      });
+    const {
+      validatedRows,
+      summary,
+      schema,
+      dedupKeys,
+      dictionaryItemsCreated,
+    } = await this.validateImportFile(tenantId, layerId, importId, {
+      persistDictionaryItems: true,
+      forceCurrentSchemaMeta: newFields.length > 0,
+      allowSchemaVersionMismatch: newFields.length > 0,
+    });
 
     if (!summary.canImport) {
       throw new BadRequestException({
@@ -416,24 +420,40 @@ export class LayerImportService {
         dictionaryItems,
         options.persistDictionaryItems ?? false,
       );
+    const { rows: relationshipRows, errors: relationshipErrors } =
+      await this.relationshipService.normalizeImportRows(
+        tenantId,
+        schema.fields,
+        rows,
+      );
+    const relationshipErrorsByRow = new Map<number, LayerImportError[]>();
+    for (const error of relationshipErrors) {
+      relationshipErrorsByRow.set(error.rowNumber, [
+        ...(relationshipErrorsByRow.get(error.rowNumber) ?? []),
+        error,
+      ]);
+    }
     const dedupKeys = resolveDedupFieldCodes(schema.fields);
 
     const validatedRows: ValidatedImportRow[] = [];
     const allErrors: LayerImportError[] = [];
 
-    for (const row of rows) {
+    for (const row of relationshipRows) {
       const normalized = await normalizeLayerImportProperties(
         schema.fields,
         row.properties,
         resolvedItems,
       );
-      const errors = collectLayerImportRowErrors({
-        rowNumber: row.rowNumber,
-        rawProperties: row.raw,
-        normalizedProperties: normalized,
-        fields: schema.fields,
-        dictionaryItemsByCode: resolvedItems,
-      });
+      const errors = [
+        ...(relationshipErrorsByRow.get(row.rowNumber) ?? []),
+        ...collectLayerImportRowErrors({
+          rowNumber: row.rowNumber,
+          rawProperties: row.raw,
+          normalizedProperties: normalized,
+          fields: schema.fields,
+          dictionaryItemsByCode: resolvedItems,
+        }),
+      ];
 
       if (errors.length > 0) {
         allErrors.push(...errors);
@@ -576,7 +596,10 @@ export class LayerImportService {
 
   private async resolveDictionaryItemsForImport(
     tenantId: string,
-    rows: Array<{ properties: Record<string, unknown>; raw: Record<string, unknown> }>,
+    rows: Array<{
+      properties: Record<string, unknown>;
+      raw: Record<string, unknown>;
+    }>,
     fields: Array<{
       fieldType: string;
       dataSchema: Record<string, unknown>;
@@ -599,7 +622,10 @@ export class LayerImportService {
       );
       if (missing.length === 0) continue;
 
-      dictionaryItemsCreated.push({ dictionaryCode: dictCode, labels: missing });
+      dictionaryItemsCreated.push({
+        dictionaryCode: dictCode,
+        labels: missing,
+      });
 
       if (persist) {
         const created = await this.dictionariesService.ensureItemsByLabels(
@@ -651,7 +677,8 @@ export class LayerImportService {
 
     for (const field of fields) {
       if (
-        (field.fieldType === 'category' || field.fieldType === 'multi_category') &&
+        (field.fieldType === 'category' ||
+          field.fieldType === 'multi_category') &&
         field.dataSchema.dictionary
       ) {
         codes.add(String(field.dataSchema.dictionary));

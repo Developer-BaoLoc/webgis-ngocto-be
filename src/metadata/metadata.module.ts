@@ -10,6 +10,7 @@ import { AssetsModule } from '../assets/assets.module';
 import { DictionariesModule } from '../dictionaries/dictionaries.module';
 import { AdministrativeBoundaryModule } from '../modules/administrative-boundary/administrative-boundary.module';
 import { MetadataService } from './metadata.service';
+import { RelationshipService } from './relationship.service';
 import { LayersController } from './layers.controller';
 import {
   MetadataCatalogController,
@@ -33,7 +34,7 @@ import {
     SchemaDraftsController,
     MetadataCatalogController,
   ],
-  providers: [MetadataService],
-  exports: [MetadataService],
+  providers: [MetadataService, RelationshipService],
+  exports: [MetadataService, RelationshipService],
 })
 export class MetadataModule {}

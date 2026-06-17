@@ -75,7 +75,9 @@ export function parseSheetRows(
   const workbook = XLSX.readFile(filePath, { cellDates: false });
   const sheet =
     workbook.Sheets[config.sheetName] ??
-    workbook.Sheets[workbook.SheetNames.find((n) => n.includes(config.sheetName)) ?? ''];
+    workbook.Sheets[
+      workbook.SheetNames.find((n) => n.includes(config.sheetName)) ?? ''
+    ];
 
   if (!sheet) {
     throw new Error(`Sheet không tồn tại: ${config.sheetName}`);

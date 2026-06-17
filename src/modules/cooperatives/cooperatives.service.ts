@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BaseGisLayerService } from '../../common/abstracts/base-gis-layer.service';
-import {
-  GisLayerType,
-  LayerStatus,
-  LAYER_DISPLAY_NAMES,
-} from '../../common';
+import { GisLayerType, LayerStatus, LAYER_DISPLAY_NAMES } from '../../common';
 import { GeometryType } from '../../common/enums/geometry-type.enum';
 
 @Injectable()

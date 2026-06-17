@@ -75,15 +75,17 @@ export class DashboardsService {
         }),
       );
 
-      const revision = await manager.getRepository(DashboardRevisionEntity).save(
-        manager.getRepository(DashboardRevisionEntity).create({
-          dashboardId: dashboard.id,
-          tenantId,
-          version: 1,
-          layoutConfig: { columns: 12 },
-          filterConfig: [],
-        }),
-      );
+      const revision = await manager
+        .getRepository(DashboardRevisionEntity)
+        .save(
+          manager.getRepository(DashboardRevisionEntity).create({
+            dashboardId: dashboard.id,
+            tenantId,
+            version: 1,
+            layoutConfig: { columns: 12 },
+            filterConfig: [],
+          }),
+        );
 
       dashboard.currentRevisionId = revision.id;
       await manager.getRepository(DashboardEntity).save(dashboard);
@@ -415,7 +417,9 @@ export class DashboardsService {
     };
   }
 
-  private toWidgetSummary(widget: DashboardWidgetEntity): DashboardWidgetSummary {
+  private toWidgetSummary(
+    widget: DashboardWidgetEntity,
+  ): DashboardWidgetSummary {
     return {
       id: widget.id,
       widgetType: widget.widgetType,

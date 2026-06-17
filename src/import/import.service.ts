@@ -28,9 +28,7 @@ import {
   normalizeTinhTrang,
   normalizeXepHang,
 } from './import-normalizer';
-import {
-  normalizeProperties,
-} from '../records/field-types/field-type.registry';
+import { normalizeProperties } from '../records/field-types/field-type.registry';
 import { DictionaryItemEntity } from '../database/entities/dictionary.entity';
 
 export const IMPORT_QUEUE = 'import';
@@ -57,11 +55,7 @@ export class ImportService {
     fs.mkdirSync(this.uploadDir, { recursive: true });
   }
 
-  async upload(
-    tenantId: string,
-    userId: string,
-    file: Express.Multer.File,
-  ) {
+  async upload(tenantId: string, userId: string, file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Thiếu file Excel');
     }
@@ -96,11 +90,7 @@ export class ImportService {
     };
   }
 
-  async preview(
-    tenantId: string,
-    importId: string,
-    templateCode: string,
-  ) {
+  async preview(tenantId: string, importId: string, templateCode: string) {
     const { importJob, template } = await this.loadImportContext(
       tenantId,
       importId,
@@ -365,7 +355,13 @@ export class ImportService {
       }
     }
 
-    const stats = { processed, created, duplicates, errors, total: parsed.rows.length };
+    const stats = {
+      processed,
+      created,
+      duplicates,
+      errors,
+      total: parsed.rows.length,
+    };
     await this.importJobsRepository.update(importJob.id, { stats });
     await this.jobsRepository.update(jobId, {
       status: errors > 0 && created === 0 ? 'failed' : 'completed',
@@ -396,7 +392,9 @@ export class ImportService {
       throw new NotFoundException('Job không tồn tại');
     }
 
-    const templates = await this.templatesRepository.find({ where: { tenantId } });
+    const templates = await this.templatesRepository.find({
+      where: { tenantId },
+    });
     const template = templates.find(
       (t) => (t.config as ImportTemplateConfig).code === templateCode,
     );
@@ -427,8 +425,12 @@ export class ImportService {
       result.khu_vuc = normalizeKhuVuc(result.khu_vuc, khuVucItems);
     }
     if ('tinh_trang' in result) {
-      const items = await this.getDictionaryItems(tenantId, 'tinh_trang_hoat_dong');
-      result.tinh_trang = normalizeTinhTrang(result.tinh_trang) ??
+      const items = await this.getDictionaryItems(
+        tenantId,
+        'tinh_trang_hoat_dong',
+      );
+      result.tinh_trang =
+        normalizeTinhTrang(result.tinh_trang) ??
         normalizeCategory(result.tinh_trang, items);
     }
     if ('loai_bom' in result) {
@@ -447,7 +449,8 @@ export class ImportService {
       result.nganh_nghe = normalizeNganhNghe(result.nganh_nghe);
     }
 
-    const layerCode = config.targetLayer ?? config.parentLayer ?? config.childLayer;
+    const layerCode =
+      config.targetLayer ?? config.parentLayer ?? config.childLayer;
     if (!layerCode) return result;
 
     const layer = await this.layersRepository.findOne({
@@ -455,7 +458,10 @@ export class ImportService {
     });
     if (!layer) return result;
 
-    const schema = await this.metadataService.getPublishedSchema(tenantId, layer.id);
+    const schema = await this.metadataService.getPublishedSchema(
+      tenantId,
+      layer.id,
+    );
     return normalizeProperties(schema.fields, result, config.unitHints ?? {});
   }
 

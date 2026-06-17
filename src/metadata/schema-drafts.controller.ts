@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { MetadataService } from './metadata.service';
 import {
@@ -20,6 +21,13 @@ import { UpdateSchemaDraftDto } from './dto/update-schema-draft.dto';
 import { CreateFieldDto } from './dto/create-field.dto';
 import { UpdateFieldDto } from './dto/update-field.dto';
 import { ReorderFieldsDto } from './dto/reorder-fields.dto';
+import { RelationshipService } from './relationship.service';
+import {
+  CheckRelationshipDto,
+  RelationshipOptionsQueryDto,
+  ResolveAgainRelationshipDto,
+} from './dto/relationship.dto';
+import { assertAdminUser } from '../common/utils/admin-role.util';
 
 @Controller('schema-drafts')
 export class SchemaDraftsController {
@@ -74,6 +82,9 @@ export class SchemaDraftsController {
     @Body() dto: CreateFieldDto,
     @RequestId() requestId?: string,
   ) {
+    if (dto.fieldType === 'relationship') {
+      assertAdminUser(user);
+    }
     const schema = await this.metadataService.addFieldToDraft(
       user.tenantId,
       schemaId,
@@ -107,6 +118,12 @@ export class SchemaDraftsController {
     @Body() dto: UpdateFieldDto,
     @RequestId() requestId?: string,
   ) {
+    if (
+      dto.fieldType === 'relationship' ||
+      dto.dataSchema?.relationType !== undefined
+    ) {
+      assertAdminUser(user);
+    }
     const schema = await this.metadataService.updateFieldInDraft(
       user.tenantId,
       schemaId,
@@ -136,7 +153,10 @@ export class SchemaDraftsController {
 
 @Controller('metadata')
 export class MetadataCatalogController {
-  constructor(private readonly metadataService: MetadataService) {}
+  constructor(
+    private readonly metadataService: MetadataService,
+    private readonly relationshipService: RelationshipService,
+  ) {}
 
   @Public()
   @Get('map-view')
@@ -160,7 +180,9 @@ export class MetadataCatalogController {
 
   @Get('field-types')
   listFieldTypes(@RequestId() requestId?: string) {
-    return apiResponse(this.metadataService.getFieldTypeCatalog(), { requestId });
+    return apiResponse(this.metadataService.getFieldTypeCatalog(), {
+      requestId,
+    });
   }
 
   @Get('field-display-options')
@@ -168,6 +190,60 @@ export class MetadataCatalogController {
     return apiResponse(this.metadataService.getFieldDisplaySchemaOptions(), {
       requestId,
     });
+  }
+
+  @Get('relationship-options')
+  async listRelationshipOptions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: RelationshipOptionsQueryDto,
+    @RequestId() requestId?: string,
+  ) {
+    const options = await this.relationshipService.listOptions(
+      user.tenantId,
+      query,
+    );
+    return apiResponse(options, { requestId });
+  }
+
+  @Post('relationships/check')
+  async checkRelationship(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CheckRelationshipDto,
+    @RequestId() requestId?: string,
+  ) {
+    assertAdminUser(user);
+    const result = await this.relationshipService.checkRelationship(
+      user.tenantId,
+      body,
+    );
+    return apiResponse(result, { requestId });
+  }
+
+  @Post('relationships/resolve-again')
+  async resolveAgainRelationship(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ResolveAgainRelationshipDto,
+    @RequestId() requestId?: string,
+  ) {
+    assertAdminUser(user);
+    const result = await this.relationshipService.resolveAgain(
+      user.tenantId,
+      body,
+    );
+    return apiResponse(result, { requestId });
+  }
+
+  @Get('relationships/suggestions')
+  async suggestInboundRelationships(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('layerId') layerId: string,
+    @RequestId() requestId?: string,
+  ) {
+    const result = await this.relationshipService.suggestInboundRelationships(
+      user.tenantId,
+      layerId,
+    );
+    return apiResponse(result, { requestId });
   }
 
   @Get('geometry-kinds')

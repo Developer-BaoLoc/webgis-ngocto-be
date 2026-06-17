@@ -133,7 +133,9 @@ export class DictionariesService {
     const dictionary = await this.dictionariesRepository
       .createQueryBuilder('d')
       .where('d.code = :code', { code })
-      .andWhere('(d.tenant_id IS NULL OR d.tenant_id = :tenantId)', { tenantId })
+      .andWhere('(d.tenant_id IS NULL OR d.tenant_id = :tenantId)', {
+        tenantId,
+      })
       .getOne();
     return Boolean(dictionary);
   }
@@ -222,7 +224,10 @@ export class DictionariesService {
     dictionaryCode: string,
     dto: CreateDictionaryItemDto,
   ) {
-    const dictionary = await this.findDictionaryOrThrow(tenantId, dictionaryCode);
+    const dictionary = await this.findDictionaryOrThrow(
+      tenantId,
+      dictionaryCode,
+    );
     this.assertDictionaryWritable(dictionary, tenantId);
 
     const [item] = await this.createValuesInternal(dictionary, [
@@ -246,7 +251,10 @@ export class DictionariesService {
       sortOrder?: number;
     }>,
   ) {
-    const dictionary = await this.findDictionaryOrThrow(tenantId, dictionaryCode);
+    const dictionary = await this.findDictionaryOrThrow(
+      tenantId,
+      dictionaryCode,
+    );
     this.assertDictionaryWritable(dictionary, tenantId);
 
     if (!values.length) {
@@ -262,7 +270,10 @@ export class DictionariesService {
     itemId: string,
     dto: UpdateDictionaryItemDto,
   ) {
-    const dictionary = await this.findDictionaryOrThrow(tenantId, dictionaryCode);
+    const dictionary = await this.findDictionaryOrThrow(
+      tenantId,
+      dictionaryCode,
+    );
     this.assertDictionaryWritable(dictionary, tenantId);
 
     const item = await this.itemsRepository.findOne({
@@ -289,7 +300,10 @@ export class DictionariesService {
   }
 
   async deleteItem(tenantId: string, dictionaryCode: string, itemId: string) {
-    const dictionary = await this.findDictionaryOrThrow(tenantId, dictionaryCode);
+    const dictionary = await this.findDictionaryOrThrow(
+      tenantId,
+      dictionaryCode,
+    );
     this.assertDictionaryWritable(dictionary, tenantId);
 
     const item = await this.itemsRepository.findOne({
@@ -321,7 +335,10 @@ export class DictionariesService {
     dictionaryCode: string,
     labels: string[],
   ): Promise<Array<{ code: string; label: string }>> {
-    const dictionary = await this.findDictionaryOrThrow(tenantId, dictionaryCode);
+    const dictionary = await this.findDictionaryOrThrow(
+      tenantId,
+      dictionaryCode,
+    );
     this.assertDictionaryWritable(dictionary, tenantId);
 
     const existing = await this.itemsRepository.find({
@@ -436,7 +453,9 @@ export class DictionariesService {
     const dictionary = await this.dictionariesRepository
       .createQueryBuilder('d')
       .where('d.code = :code', { code })
-      .andWhere('(d.tenant_id IS NULL OR d.tenant_id = :tenantId)', { tenantId })
+      .andWhere('(d.tenant_id IS NULL OR d.tenant_id = :tenantId)', {
+        tenantId,
+      })
       .getOne();
 
     if (!dictionary) {

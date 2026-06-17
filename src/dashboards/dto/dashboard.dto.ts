@@ -30,7 +30,17 @@ export class DashboardWidgetInputDto {
   id?: string;
 
   @IsString()
-  @IsIn(['stat', 'bar', 'pie', 'donut', 'line', 'table', 'map', 'text', 'global_filter'])
+  @IsIn([
+    'stat',
+    'bar',
+    'pie',
+    'donut',
+    'line',
+    'table',
+    'map',
+    'text',
+    'global_filter',
+  ])
   widgetType: string;
 
   @IsOptional()

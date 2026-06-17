@@ -11,7 +11,10 @@ import {
   JobExecutionEntity,
 } from '../database/entities/import.entity';
 import { LayerEntity } from '../database/entities/metadata.entity';
-import { ImportController } from './import.controller';
+import {
+  ImportController,
+  ImportRelationshipController,
+} from './import.controller';
 import { ImportService, IMPORT_QUEUE } from './import.service';
 import { ImportProcessor } from './import.processor';
 import { RecordsModule } from '../records/records.module';
@@ -51,6 +54,7 @@ import { JobsController } from '../jobs/jobs.controller';
   ],
   controllers: [
     ImportController,
+    ImportRelationshipController,
     JobsController,
     LayerImportController,
     GeoJsonImportController,

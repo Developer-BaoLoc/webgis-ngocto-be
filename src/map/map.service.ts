@@ -41,7 +41,11 @@ export class MapService {
     };
 
     for (const layer of layers) {
-      const collection = await this.recordsService.getGeoJson(tenantId, layer.id, {});
+      const collection = await this.recordsService.getGeoJson(
+        tenantId,
+        layer.id,
+        {},
+      );
       for (const feature of collection.features) {
         if (!feature.geometry) continue;
         featureCollection.features.push({
@@ -63,9 +67,12 @@ export class MapService {
     };
   }
 
-  private withAbsoluteIconUrl(layer: LayerSummary, apiPublicUrl: string): MapLayerMeta {
+  private withAbsoluteIconUrl(
+    layer: LayerSummary,
+    apiPublicUrl: string,
+  ): MapLayerMeta {
     if (!layer.style || typeof layer.style !== 'object') {
-      return { ...layer, style: layer.style as Record<string, unknown> | null };
+      return { ...layer, style: layer.style };
     }
 
     const style = { ...layer.style } as Record<string, unknown>;

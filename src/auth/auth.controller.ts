@@ -25,10 +25,8 @@ export class AuthController {
     @CurrentUser() user: AuthenticatedUser,
     @RequestId() requestId?: string,
   ) {
-    const primaryOrganizationId = await this.authService.getPrimaryOrganizationId(
-      user.id,
-      user.tenantId,
-    );
+    const primaryOrganizationId =
+      await this.authService.getPrimaryOrganizationId(user.id, user.tenantId);
 
     return apiResponse(
       {

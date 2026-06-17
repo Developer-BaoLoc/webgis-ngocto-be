@@ -31,10 +31,21 @@ export function isShowOnMapPopupField(field: FieldLike): boolean {
   if (display.visibleInPopup === true) return true;
   if (display.visibleInPopup === false) return false;
 
+  if (
+    field.dataSchema?.relationType === 'one-to-many' ||
+    field.dataSchema?.relationType === 'many-to-many'
+  ) {
+    return true;
+  }
+
   return isRequiredField(field);
 }
 
-const POPUP_FONT_SIZES = new Set<PopupFontSizeCode>(['small', 'medium', 'large']);
+const POPUP_FONT_SIZES = new Set<PopupFontSizeCode>([
+  'small',
+  'medium',
+  'large',
+]);
 
 function normalizeHexColor(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;

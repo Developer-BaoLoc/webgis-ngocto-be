@@ -59,7 +59,10 @@ export class AuthService {
     };
   }
 
-  async getProfile(userId: string, tenantId: string): Promise<AuthenticatedUser> {
+  async getProfile(
+    userId: string,
+    tenantId: string,
+  ): Promise<AuthenticatedUser> {
     const user = await this.usersRepository.findOne({
       where: { id: userId, tenantId, isActive: true },
     });
@@ -79,7 +82,10 @@ export class AuthService {
     return member?.organizationId ?? null;
   }
 
-  private async loadRoleCodes(userId: string, tenantId: string): Promise<string[]> {
+  private async loadRoleCodes(
+    userId: string,
+    tenantId: string,
+  ): Promise<string[]> {
     const assignments = await this.roleAssignmentsRepository.find({
       where: { userId, tenantId },
     });

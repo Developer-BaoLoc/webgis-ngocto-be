@@ -91,8 +91,7 @@ export function getMeasurementUnitLabel(
   measurementType: string,
   code: string | undefined,
 ): string {
-  const units =
-    measurementType === 'distance' ? DISTANCE_UNITS : AREA_UNITS;
+  const units = measurementType === 'distance' ? DISTANCE_UNITS : AREA_UNITS;
   return getUnitLabel(units, code);
 }
 

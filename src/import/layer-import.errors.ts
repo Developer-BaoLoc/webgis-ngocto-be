@@ -28,7 +28,8 @@ export function formatAllowedLabels(
 ): string {
   if (items.length === 0) return '(danh mục chưa có giá trị)';
   const shown = items.slice(0, max).map((item) => item.label);
-  const suffix = items.length > max ? ` … (+${items.length - max} giá trị khác)` : '';
+  const suffix =
+    items.length > max ? ` … (+${items.length - max} giá trị khác)` : '';
   return `${shown.join('; ')}${suffix}`;
 }
 

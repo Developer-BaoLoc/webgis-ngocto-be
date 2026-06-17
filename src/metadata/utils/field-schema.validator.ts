@@ -6,8 +6,12 @@ import {
   MEASUREMENT_TYPES,
 } from '../constants/field-units.constants';
 
-export function resolveDictionaryCode(dataSchema: Record<string, unknown>): string {
-  return String(dataSchema.dictionary ?? dataSchema.dictionaryCode ?? '').trim();
+export function resolveDictionaryCode(
+  dataSchema: Record<string, unknown>,
+): string {
+  return String(
+    dataSchema.dictionary ?? dataSchema.dictionaryCode ?? '',
+  ).trim();
 }
 
 export function validateFieldDataSchema(
@@ -55,7 +59,9 @@ export function validateFieldDataSchema(
       break;
     }
     case 'quantity': {
-      const unit = String(dataSchema.unit ?? dataSchema.defaultUnit ?? '').trim();
+      const unit = String(
+        dataSchema.unit ?? dataSchema.defaultUnit ?? '',
+      ).trim();
       if (!unit) {
         throw new BadRequestException(
           'Trường sản lượng bắt buộc chọn đơn vị (unit): kg, tan, lit, ...',
@@ -72,6 +78,47 @@ export function validateFieldDataSchema(
       if (!dictionaryCode) {
         throw new BadRequestException(
           'Trường danh mục bắt buộc chọn danh mục dùng chung (dataSchema.dictionary)',
+        );
+      }
+      break;
+    }
+    case 'relationship': {
+      const relationType = String(dataSchema.relationType ?? '').trim();
+      if (
+        !['many-to-one', 'one-to-many', 'many-to-many'].includes(relationType)
+      ) {
+        throw new BadRequestException(
+          'Trường quan hệ bắt buộc chọn relationType: many-to-one, one-to-many hoặc many-to-many',
+        );
+      }
+
+      const targetLayerId = String(
+        dataSchema.targetLayerId ??
+          dataSchema.targetTable ??
+          dataSchema.targetLayerCode ??
+          '',
+      ).trim();
+      if (!targetLayerId) {
+        throw new BadRequestException(
+          'Trường quan hệ bắt buộc chọn target table/layer',
+        );
+      }
+
+      const targetDisplayField = String(
+        dataSchema.targetDisplayField ?? dataSchema.displayField ?? '',
+      ).trim();
+      if (!targetDisplayField) {
+        throw new BadRequestException(
+          'Trường quan hệ bắt buộc chọn display field',
+        );
+      }
+
+      const notFoundAction = String(
+        dataSchema.notFoundAction ?? 'error',
+      ).trim();
+      if (!['error', 'skip', 'create_parent'].includes(notFoundAction)) {
+        throw new BadRequestException(
+          'notFoundAction của relationship chỉ hỗ trợ: error, skip, create_parent',
         );
       }
       break;

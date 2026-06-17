@@ -19,6 +19,7 @@ import {
 import { AuthenticatedUser } from '../common/types/api.types';
 import { apiResponse } from '../common/utils/api-response.util';
 import { ImportNewFieldsDto } from './dto/import-new-field.dto';
+import { assertAdminUser } from '../common/utils/admin-role.util';
 
 @Controller('layers/:layerId/imports')
 export class LayerImportController {
@@ -30,8 +31,10 @@ export class LayerImportController {
     @Param('layerId', ParseUUIDPipe) layerId: string,
     @Res({ passthrough: false }) res: Response,
   ) {
-    const { buffer, fileName } =
-      await this.layerImportService.generateTemplate(user.tenantId, layerId);
+    const { buffer, fileName } = await this.layerImportService.generateTemplate(
+      user.tenantId,
+      layerId,
+    );
 
     res.setHeader(
       'Content-Type',
@@ -83,6 +86,9 @@ export class LayerImportController {
     @Body() dto: ImportNewFieldsDto,
     @RequestId() requestId?: string,
   ) {
+    if (dto.newFields?.some((field) => field.fieldType === 'relationship')) {
+      assertAdminUser(user);
+    }
     const result = await this.layerImportService.execute(
       user.tenantId,
       layerId,

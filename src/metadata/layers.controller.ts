@@ -33,7 +33,9 @@ export class LayersController {
   @Public()
   @Get()
   async listCatalog(@RequestId() requestId?: string) {
-    const tenantId = this.configService.get('tenant.defaultId', { infer: true });
+    const tenantId = this.configService.get('tenant.defaultId', {
+      infer: true,
+    });
     const layers = await this.metadataService.listLayers(tenantId);
     const duongLayer = layers.find((layer) => layer.code === 'duong');
     console.log('[duong-render-trace][backend:/layers]', {
@@ -81,7 +83,10 @@ export class LayersController {
     @Param('code') code: string,
     @RequestId() requestId?: string,
   ) {
-    const layer = await this.metadataService.getLayerByCode(user.tenantId, code);
+    const layer = await this.metadataService.getLayerByCode(
+      user.tenantId,
+      code,
+    );
     return apiResponse(layer, { requestId });
   }
 
@@ -145,7 +150,10 @@ export class LayersController {
     @Param('layerId', ParseUUIDPipe) layerId: string,
     @RequestId() requestId?: string,
   ) {
-    const layer = await this.metadataService.getLayerById(user.tenantId, layerId);
+    const layer = await this.metadataService.getLayerById(
+      user.tenantId,
+      layerId,
+    );
     return apiResponse(layer, { requestId });
   }
 

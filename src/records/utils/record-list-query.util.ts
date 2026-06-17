@@ -30,7 +30,8 @@ export function parseRecordListQuery(input: {
   const pageNumber = Number(input.page ?? 1);
   const pageSizeNumber = Number(input.pageSize ?? DEFAULT_PAGE_SIZE);
 
-  const page = Number.isFinite(pageNumber) && pageNumber >= 1 ? Math.floor(pageNumber) : 1;
+  const page =
+    Number.isFinite(pageNumber) && pageNumber >= 1 ? Math.floor(pageNumber) : 1;
   const pageSize = Number.isFinite(pageSizeNumber)
     ? Math.min(MAX_PAGE_SIZE, Math.max(1, Math.floor(pageSizeNumber)))
     : DEFAULT_PAGE_SIZE;

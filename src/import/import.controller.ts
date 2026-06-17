@@ -10,6 +10,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ImportService } from './import.service';
+import { RelationshipService } from '../metadata/relationship.service';
+import { ResolveRelationshipsDto } from '../metadata/dto/relationship.dto';
 import {
   CurrentUser,
   RequestId,
@@ -19,7 +21,10 @@ import { apiResponse } from '../common/utils/api-response.util';
 
 @Controller('imports')
 export class ImportController {
-  constructor(private readonly importService: ImportService) {}
+  constructor(
+    private readonly importService: ImportService,
+    private readonly relationshipService: RelationshipService,
+  ) {}
 
   @Get('templates')
   async listTemplates(
@@ -41,6 +46,19 @@ export class ImportController {
       user.tenantId,
       user.id,
       file,
+    );
+    return apiResponse(result, { requestId });
+  }
+
+  @Post('resolve-relationships')
+  async resolveRelationships(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ResolveRelationshipsDto,
+    @RequestId() requestId?: string,
+  ) {
+    const result = await this.relationshipService.resolveValues(
+      user.tenantId,
+      body,
     );
     return apiResponse(result, { requestId });
   }
@@ -83,6 +101,24 @@ export class ImportController {
     @RequestId() requestId?: string,
   ) {
     const result = await this.importService.getImport(user.tenantId, importId);
+    return apiResponse(result, { requestId });
+  }
+}
+
+@Controller('import')
+export class ImportRelationshipController {
+  constructor(private readonly relationshipService: RelationshipService) {}
+
+  @Post('resolve-relationships')
+  async resolveRelationships(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ResolveRelationshipsDto,
+    @RequestId() requestId?: string,
+  ) {
+    const result = await this.relationshipService.resolveValues(
+      user.tenantId,
+      body,
+    );
     return apiResponse(result, { requestId });
   }
 }

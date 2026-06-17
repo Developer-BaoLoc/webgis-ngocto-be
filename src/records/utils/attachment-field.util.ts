@@ -17,7 +17,9 @@ export function buildAttachmentUrl(attachmentId: string): string {
   return `/api/assets/${attachmentId}/file`;
 }
 
-export function normalizeAttachmentList(value: unknown): FieldAttachmentValue[] {
+export function normalizeAttachmentList(
+  value: unknown,
+): FieldAttachmentValue[] {
   if (value === null || value === undefined || value === '') {
     return [];
   }
@@ -123,7 +125,8 @@ export function formatAttachmentListDisplay(
     .filter(Boolean)
     .slice(0, 3);
   if (names.length > 0) {
-    const suffix = items.length > names.length ? ` (+${items.length - names.length})` : '';
+    const suffix =
+      items.length > names.length ? ` (+${items.length - names.length})` : '';
     return `${names.join(', ')}${suffix}`;
   }
   return `${items.length} ${labelSingular}`;

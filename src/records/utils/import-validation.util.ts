@@ -22,7 +22,9 @@ export function buildUnitHints(fields: SchemaField[]): Record<string, string> {
   return hints;
 }
 
-export function fieldsForImportValidation(fields: SchemaField[]): SchemaField[] {
+export function fieldsForImportValidation(
+  fields: SchemaField[],
+): SchemaField[] {
   return fields.map((field) => {
     if (!LAYER_EXCEL_IMPORT_OPTIONAL_TYPES.has(field.fieldType)) {
       return field;

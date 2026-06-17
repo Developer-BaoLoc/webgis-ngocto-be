@@ -34,8 +34,15 @@ function normalizeText(value: string): string {
   return stripAccents(value.toLowerCase().trim());
 }
 
-function parseLatLngString(value: unknown): { lat: number; lng: number } | null {
-  if (typeof value === 'object' && value !== null && 'lat' in value && 'lng' in value) {
+function parseLatLngString(
+  value: unknown,
+): { lat: number; lng: number } | null {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'lat' in value &&
+    'lng' in value
+  ) {
     return value as { lat: number; lng: number };
   }
   if (typeof value !== 'string') return null;
@@ -166,8 +173,8 @@ export async function normalizeLayerImportProperties(
       const items = dictionaryItemsByCode[dictCode] ?? [];
       const normalized =
         field.code === 'tinh_trang_hoat_dong'
-          ? normalizeTinhTrangHoatDong(value) ??
-            matchCategoryCode(value, items)
+          ? (normalizeTinhTrangHoatDong(value) ??
+            matchCategoryCode(value, items))
           : matchCategoryCode(value, items);
       if (normalized) result[field.code] = normalized;
     }
@@ -275,7 +282,10 @@ export function collectLayerImportRowErrors(input: {
     errors.push(error);
   };
 
-  for (const err of validateLayerImportProperties(fields, normalizedProperties)) {
+  for (const err of validateLayerImportProperties(
+    fields,
+    normalizedProperties,
+  )) {
     const field = fields.find((item) => item.code === err.field);
     pushError({
       rowNumber,
@@ -340,7 +350,10 @@ export function collectLayerImportRowErrors(input: {
       }
     }
 
-    if (field.fieldType === 'integer' && !Number.isInteger(Number(normalizedProperties[field.code]))) {
+    if (
+      field.fieldType === 'integer' &&
+      !Number.isInteger(Number(normalizedProperties[field.code]))
+    ) {
       pushError({
         rowNumber,
         field: field.code,
@@ -351,8 +364,13 @@ export function collectLayerImportRowErrors(input: {
       });
     }
 
-    if (field.fieldType === 'money' && normalizedProperties[field.code] === undefined) {
-      const unitLabel = getMoneyUnitLabel(String(field.dataSchema.unit ?? 'vnd'));
+    if (
+      field.fieldType === 'money' &&
+      normalizedProperties[field.code] === undefined
+    ) {
+      const unitLabel = getMoneyUnitLabel(
+        String(field.dataSchema.unit ?? 'vnd'),
+      );
       pushError({
         rowNumber,
         field: field.code,
@@ -437,7 +455,10 @@ export function collectDictionaryLabelsFromImportRows(
   const labelsByDict: Record<string, Set<string>> = {};
 
   for (const field of fields) {
-    if (field.fieldType !== 'category' && field.fieldType !== 'multi_category') {
+    if (
+      field.fieldType !== 'category' &&
+      field.fieldType !== 'multi_category'
+    ) {
       continue;
     }
 
