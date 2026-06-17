@@ -101,6 +101,13 @@ export function formatFieldValue(
   value: unknown,
   dictionaryLabels: Record<string, string> = {},
 ): string {
+  if (
+    (field.fieldType === 'line' || field.fieldType === 'linestring') &&
+    (value === null || value === undefined || value === '')
+  ) {
+    return 'Chưa có đường';
+  }
+
   if (value === null || value === undefined || value === '') {
     return '—';
   }
@@ -125,6 +132,27 @@ export function formatFieldValue(
     const coordinates = (value as { coordinates?: unknown }).coordinates;
     if (Array.isArray(coordinates)) {
       return `${coordinates.length} điểm`;
+    }
+  }
+
+  if (
+    (field.fieldType === 'line' || field.fieldType === 'linestring') &&
+    typeof value === 'object' &&
+    value !== null
+  ) {
+    const geometry = value as { type?: unknown; coordinates?: unknown };
+    if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates)) {
+      return `LineString - ${geometry.coordinates.length} đỉnh`;
+    }
+    if (
+      geometry.type === 'MultiLineString' &&
+      Array.isArray(geometry.coordinates)
+    ) {
+      const count = geometry.coordinates.reduce(
+        (total, line) => total + (Array.isArray(line) ? line.length : 0),
+        0,
+      );
+      return `MultiLineString - ${count} đỉnh`;
     }
   }
 

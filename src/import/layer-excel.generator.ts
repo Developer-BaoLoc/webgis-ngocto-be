@@ -51,6 +51,11 @@ function buildFieldHint(field: LayerSchemaField): string {
       'Định dạng: "lat,lng; lat,lng; ..." (≥3 điểm) hoặc JSON coordinates',
     );
   }
+  if (field.fieldType === 'line') {
+    parts.push(
+      'Định dạng: "lat,lng; lat,lng; ..." (≥2 điểm) hoặc GeoJSON LineString/MultiLineString',
+    );
+  }
   if (field.fieldType === 'relationship') {
     parts.push(
       `Nhập giá trị theo field hiển thị/match: ${field.dataSchema.matchField ?? field.dataSchema.targetDisplayField ?? 'id'}`,

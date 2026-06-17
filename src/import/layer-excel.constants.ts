@@ -11,6 +11,7 @@ export const LAYER_EXCEL_SKIP_FIELD_TYPES = new Set(['image', 'file']);
 export const LAYER_EXCEL_IMPORT_OPTIONAL_TYPES = new Set([
   'lat_lng',
   'area_polygon',
+  'line',
   'image',
   'file',
 ]);

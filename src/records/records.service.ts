@@ -25,6 +25,11 @@ import {
   isPolygonGeometryKind,
   resolvePolygonFromAreaFields,
 } from './utils/area-polygon-geometry.util';
+import {
+  isLineFieldType,
+  isLineGeometryKind,
+  resolveLineFromLineFields,
+} from './utils/line-geometry.util';
 import { RecordDisplayService } from './record-display.service';
 import { RelationshipService } from '../metadata/relationship.service';
 import {
@@ -161,6 +166,14 @@ export class RecordsService implements OnModuleInit {
       geometry =
         resolvePolygonFromAreaFields(schemaFields, feature.properties) ?? null;
     }
+    if (
+      !geometry &&
+      isLineGeometryKind(layer.geometryKind) &&
+      schemaFields.some((field) => isLineFieldType(field.fieldType))
+    ) {
+      geometry =
+        resolveLineFromLineFields(schemaFields, feature.properties) ?? null;
+    }
 
     const display = await this.recordDisplayService.buildDisplay(
       tenantId,
@@ -236,6 +249,15 @@ export class RecordsService implements OnModuleInit {
       );
       if (polygonFromField) {
         geometry = polygonFromField;
+        locationStatus = 'located';
+        geometrySource = 'geocoded';
+      }
+    }
+
+    if (!geometry && isLineGeometryKind(layer.geometryKind)) {
+      const lineFromField = resolveLineFromLineFields(schema.fields, normalized);
+      if (lineFromField) {
+        geometry = lineFromField;
         locationStatus = 'located';
         geometrySource = 'geocoded';
       }
@@ -324,6 +346,15 @@ export class RecordsService implements OnModuleInit {
       );
       if (polygonFromField) {
         geometry = polygonFromField;
+        locationStatus = 'located';
+        geometrySource = 'geocoded';
+      }
+    }
+
+    if (!geometry && isLineGeometryKind(layer.geometryKind)) {
+      const lineFromField = resolveLineFromLineFields(schema.fields, normalized);
+      if (lineFromField) {
+        geometry = lineFromField;
         locationStatus = 'located';
         geometrySource = 'geocoded';
       }
@@ -533,7 +564,9 @@ export class RecordsService implements OnModuleInit {
       (layer.geometryKind === 'point' &&
         schemaFields.some((field) => field.fieldType === 'lat_lng')) ||
       (isPolygonGeometryKind(layer.geometryKind) &&
-        schemaFields.some((field) => field.fieldType === 'area_polygon'));
+        schemaFields.some((field) => field.fieldType === 'area_polygon')) ||
+      (isLineGeometryKind(layer.geometryKind) &&
+        schemaFields.some((field) => isLineFieldType(field.fieldType)));
     if (traceDuong) {
       console.log('[duong-render-trace][backend:geojson:schema]', {
         schemaFieldCount: schemaFields.length,
@@ -718,7 +751,7 @@ export class RecordsService implements OnModuleInit {
       WHERE f.tenant_id = $1
         AND f.deleted_at IS NULL
         AND f.geometry IS NULL
-        AND l.geometry_kind IN ('point', 'polygon', 'multipolygon')
+        AND l.geometry_kind IN ('point', 'polygon', 'multipolygon', 'linestring', 'multilinestring')
       `,
       [tenantId],
     );
@@ -761,7 +794,9 @@ export class RecordsService implements OnModuleInit {
   ): boolean {
     return fields.some(
       (field) =>
-        (field.fieldType === 'lat_lng' || field.fieldType === 'area_polygon') &&
+        (field.fieldType === 'lat_lng' ||
+          field.fieldType === 'area_polygon' ||
+          isLineFieldType(field.fieldType)) &&
         field.code in properties,
     );
   }
@@ -776,6 +811,9 @@ export class RecordsService implements OnModuleInit {
     }
     if (isPolygonGeometryKind(layer.geometryKind)) {
       return resolvePolygonFromAreaFields(fields, properties);
+    }
+    if (isLineGeometryKind(layer.geometryKind)) {
+      return resolveLineFromLineFields(fields, properties);
     }
     return null;
   }

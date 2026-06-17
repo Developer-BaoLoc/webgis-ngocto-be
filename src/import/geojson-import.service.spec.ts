@@ -51,5 +51,19 @@ describe('geojson-import helpers', () => {
         suggestImportFieldType(['2026-01-01', '2026-05-20']).suggestedType,
       ).toBe('date');
     });
+
+    it('suggests line for GeoJSON LineString geometry samples', () => {
+      expect(
+        suggestImportFieldType([
+          {
+            type: 'LineString',
+            coordinates: [
+              [105.123, 10.456],
+              [105.124, 10.457],
+            ],
+          },
+        ]).suggestedType,
+      ).toBe('line');
+    });
   });
 });

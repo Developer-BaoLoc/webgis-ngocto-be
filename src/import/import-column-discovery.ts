@@ -60,6 +60,15 @@ function parseDateLike(value: unknown): boolean {
   return !Number.isNaN(Date.parse(raw));
 }
 
+function parseLineGeometryLike(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as { type?: unknown; coordinates?: unknown };
+  return (
+    (record.type === 'LineString' || record.type === 'MultiLineString') &&
+    Array.isArray(record.coordinates)
+  );
+}
+
 function confidence(matches: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((matches / total) * 100) / 100;
@@ -76,6 +85,14 @@ export function suggestImportFieldType(values: unknown[]): {
   const samples = values.filter((value) => !isEmpty(value)).slice(0, 20);
   if (samples.length === 0) {
     return { suggestedType: 'text', confidence: 0.5 };
+  }
+
+  const lineMatches = samples.filter(parseLineGeometryLike).length;
+  if (lineMatches === samples.length) {
+    return {
+      suggestedType: 'line',
+      confidence: confidence(lineMatches, samples.length),
+    };
   }
 
   const booleanMatches = samples.filter(parseBooleanLike).length;

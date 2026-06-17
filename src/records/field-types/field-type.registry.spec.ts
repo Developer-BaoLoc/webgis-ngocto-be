@@ -98,3 +98,57 @@ describe('field-type registry relationship handler', () => {
     ]);
   });
 });
+
+describe('field-type registry line handler', () => {
+  const lineFields = [
+    {
+      code: 'tuyen',
+      fieldType: 'line',
+      dataSchema: {},
+    },
+  ];
+
+  it('accepts GeoJSON LineString values', () => {
+    const value = {
+      type: 'LineString',
+      coordinates: [
+        [105.123, 10.456],
+        [105.124, 10.457],
+      ],
+    };
+
+    const errors = validateProperties(lineFields, { tuyen: value });
+    const normalized = normalizeProperties(lineFields, { tuyen: value });
+
+    expect(errors).toEqual([]);
+    expect(normalized.tuyen).toEqual(value);
+  });
+
+  it('rejects Point values for line fields', () => {
+    const errors = validateProperties(lineFields, {
+      tuyen: { type: 'Point', coordinates: [105.123, 10.456] },
+    });
+
+    expect(errors).toEqual([
+      {
+        field: 'tuyen',
+        code: 'INVALID_TYPE',
+        message: 'Phải là LineString/MultiLineString với tối thiểu 2 điểm',
+      },
+    ]);
+  });
+
+  it('requires at least two vertices', () => {
+    const errors = validateProperties(lineFields, {
+      tuyen: { type: 'LineString', coordinates: [[105.123, 10.456]] },
+    });
+
+    expect(errors).toEqual([
+      {
+        field: 'tuyen',
+        code: 'INVALID_TYPE',
+        message: 'Phải là LineString/MultiLineString với tối thiểu 2 điểm',
+      },
+    ]);
+  });
+});

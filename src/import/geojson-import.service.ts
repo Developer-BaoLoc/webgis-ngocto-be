@@ -25,6 +25,7 @@ import type {
   ImportDetectedColumn,
 } from './import-column-discovery';
 import { RelationshipService } from '../metadata/relationship.service';
+import { isLineFieldType } from '../records/utils/line-geometry.util';
 
 const { pick } = require('stream-json/filters/pick.js') as {
   pick: (options: { filter: string }) => NodeJS.ReadWriteStream;
@@ -57,6 +58,8 @@ type PreparedFeature = {
   properties: Record<string, unknown>;
   geometry: GeoJsonGeometry;
 };
+
+const GEOJSON_GEOMETRY_SOURCE_KEYS = new Set(['geometry', '__geometry__']);
 
 type ImportContext = {
   tenantId: string;
@@ -382,6 +385,7 @@ export class GeoJsonImportService {
       feature.properties ?? {},
       context.schema.fields,
       context.options.propertyMapping ?? {},
+      feature.geometry,
     );
     const { rows, errors: relationshipErrors } =
       await this.relationshipService.normalizeImportRows(
@@ -424,6 +428,7 @@ export class GeoJsonImportService {
     source: Record<string, unknown>,
     fields: SchemaFieldLike[],
     override: Record<string, string>,
+    geometry: GeoJsonGeometry,
   ): Record<string, unknown> {
     const mapped: Record<string, unknown> = {};
     const sourceKeys = Object.keys(source);
@@ -433,6 +438,15 @@ export class GeoJsonImportService {
 
     for (const field of fields) {
       const overrideKey = override[field.code];
+      if (
+        isLineFieldType(field.fieldType) &&
+        this.isLineGeometry(geometry) &&
+        (!overrideKey || GEOJSON_GEOMETRY_SOURCE_KEYS.has(overrideKey))
+      ) {
+        mapped[field.code] = geometry;
+        continue;
+      }
+
       const sourceKey =
         (overrideKey && overrideKey in source ? overrideKey : null) ??
         this.findAutoSourceKey(field, sourceKeys, normalizedSource);
@@ -455,6 +469,7 @@ export class GeoJsonImportService {
     const candidates = [
       field.code,
       field.label,
+      ...(isLineFieldType(field.fieldType) ? ['geometry', '__geometry__'] : []),
       ...this.osmAliasesForField(field.code),
     ];
 
@@ -498,6 +513,12 @@ export class GeoJsonImportService {
       return `Geometry type ${geometry.type} không khớp layer geometry_kind ${geometryKind}`;
     }
     return null;
+  }
+
+  private isLineGeometry(geometry: GeoJsonGeometry): boolean {
+    return (
+      geometry.type === 'LineString' || geometry.type === 'MultiLineString'
+    );
   }
 
   private async applySpatialFilter(
@@ -732,8 +753,29 @@ export class GeoJsonImportService {
   ): Promise<ImportColumnAnalysis> {
     const columns = new Map<string, ImportDetectedColumn>();
     let sampled = 0;
+    const hasLineField = schema.fields.some((field) =>
+      isLineFieldType(field.fieldType),
+    );
 
     for await (const feature of this.iterateFeatures(filePath)) {
+      if (
+        feature.geometry &&
+        this.isLineGeometry(feature.geometry) &&
+        !hasLineField
+      ) {
+        const current =
+          columns.get('geometry') ??
+          ({
+            code: 'geometry',
+            label: 'Geometry',
+            values: [],
+          } satisfies ImportDetectedColumn);
+        if (current.values.length < sampleSize) {
+          current.values.push(feature.geometry);
+        }
+        columns.set('geometry', current);
+      }
+
       for (const [key, value] of Object.entries(feature.properties ?? {})) {
         const current =
           columns.get(key) ??

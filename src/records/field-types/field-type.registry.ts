@@ -4,6 +4,10 @@ import {
   parseAreaPolygonValue,
 } from '../utils/area-polygon-geometry.util';
 import {
+  normalizeLineGeometryValue,
+  parseLineGeometryValue,
+} from '../utils/line-geometry.util';
+import {
   normalizeAttachmentList,
   validateAttachmentList,
 } from '../utils/attachment-field.util';
@@ -363,6 +367,33 @@ const areaPolygonHandler: FieldTypeHandler = {
   },
 };
 
+const lineHandler: FieldTypeHandler = {
+  type: 'line',
+  validate(value, config) {
+    if (config.required && isEmpty(value)) {
+      return { field: '', code: 'REQUIRED', message: 'Bắt buộc' };
+    }
+    if (isEmpty(value)) return null;
+
+    const parsed = parseLineGeometryValue(value);
+    if (!parsed) {
+      return {
+        field: '',
+        code: 'INVALID_TYPE',
+        message:
+          'Phải là LineString/MultiLineString với tối thiểu 2 điểm',
+      };
+    }
+
+    return null;
+  },
+  normalize(value) {
+    const parsed = parseLineGeometryValue(value);
+    if (!parsed) return null;
+    return normalizeLineGeometryValue(parsed);
+  },
+};
+
 const HANDLERS: Record<string, FieldTypeHandler> = {
   text: textHandler,
   textarea: textareaHandler,
@@ -377,6 +408,8 @@ const HANDLERS: Record<string, FieldTypeHandler> = {
   relationship: relationshipHandler,
   lat_lng: latLngHandler,
   area_polygon: areaPolygonHandler,
+  line: lineHandler,
+  linestring: lineHandler,
   image: imageHandler,
   file: fileHandler,
 };

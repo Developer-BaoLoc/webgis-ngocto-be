@@ -33,6 +33,7 @@ export const FIELD_TYPES = [
   'relationship',
   'lat_lng',
   'area_polygon',
+  'line',
   'image',
   'file',
 ] as const;
@@ -240,6 +241,15 @@ export const FIELD_TYPE_CATALOG: Array<{
     label: 'Vùng',
     uiComponent: 'area_polygon',
     valueShape: { coordinates: 'array<{ lat, lng }>' },
+  },
+  {
+    type: 'line',
+    label: 'Đường',
+    uiComponent: 'line',
+    valueShape: {
+      type: 'LineString | MultiLineString',
+      coordinates: 'GeoJSON coordinates',
+    },
   },
   {
     type: 'image',

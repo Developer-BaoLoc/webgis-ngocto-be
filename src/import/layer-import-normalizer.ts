@@ -10,6 +10,7 @@ import {
 } from '../records/utils/import-validation.util';
 import { parseMoneyImportValue } from '../records/utils/money-import.util';
 import { splitMultiCategoryInput } from '../records/utils/multi-category.util';
+import { parseLineGeometryValue } from '../records/utils/line-geometry.util';
 import { getMoneyUnitLabel } from '../metadata/constants/field-units.constants';
 import { normalizeCategory, matchCategoryCode } from './import-normalizer';
 import {
@@ -195,6 +196,11 @@ export async function normalizeLayerImportProperties(
 
     if (field.fieldType === 'area_polygon') {
       const parsed = parseAreaPolygonString(value);
+      if (parsed) result[field.code] = parsed;
+    }
+
+    if (field.fieldType === 'line') {
+      const parsed = parseLineGeometryValue(value);
       if (parsed) result[field.code] = parsed;
     }
 
@@ -436,6 +442,20 @@ export function collectLayerImportRowErrors(input: {
         rawValue: toRawDisplay(raw),
         code: IMPORT_ERROR_CODES.INVALID_AREA_POLYGON,
         message: `Cột "${field.label}": dùng "lat,lng; lat,lng; ..." (≥3 điểm) hoặc JSON coordinates (giá trị hiện tại: "${toRawDisplay(raw)}")`,
+      });
+    }
+
+    if (
+      field.fieldType === 'line' &&
+      typeof normalizedProperties[field.code] !== 'object'
+    ) {
+      pushError({
+        rowNumber,
+        field: field.code,
+        fieldLabel: field.label,
+        rawValue: toRawDisplay(raw),
+        code: IMPORT_ERROR_CODES.INVALID_TYPE,
+        message: `Cột "${field.label}": dùng "lat,lng; lat,lng; ..." (≥2 điểm) hoặc GeoJSON LineString/MultiLineString (giá trị hiện tại: "${toRawDisplay(raw)}")`,
       });
     }
   }
