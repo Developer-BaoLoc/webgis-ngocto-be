@@ -454,6 +454,7 @@ export class RelationshipService {
 
     const rows = await this.dataSource.query<
       Array<{
+        total_child: string;
         child_with_fk: string;
         matched: string;
         unmatched: string;
@@ -461,16 +462,20 @@ export class RelationshipService {
     >(
       `
       WITH child AS (
-        SELECT f.id, f.properties->>($3::text) AS fk_value
+        SELECT f.id, f.properties
         FROM features f
         WHERE f.tenant_id = $1
           AND f.layer_id = $2
           AND f.deleted_at IS NULL
-          AND NULLIF(f.properties->>($3::text), '') IS NOT NULL
+      ),
+      child_with_fk AS (
+        SELECT f.id, f.properties->>($3::text) AS fk_value
+        FROM child f
+        WHERE NULLIF(f.properties->>($3::text), '') IS NOT NULL
       ),
       matched AS (
         SELECT c.id
-        FROM child c
+        FROM child_with_fk c
         INNER JOIN features p
           ON p.tenant_id = $1
          AND p.layer_id = $4
@@ -478,9 +483,10 @@ export class RelationshipService {
          AND p.id::text = c.fk_value
       )
       SELECT
-        (SELECT COUNT(*) FROM child)::int AS child_with_fk,
+        (SELECT COUNT(*) FROM child)::int AS total_child,
+        (SELECT COUNT(*) FROM child_with_fk)::int AS child_with_fk,
         (SELECT COUNT(*) FROM matched)::int AS matched,
-        ((SELECT COUNT(*) FROM child) - (SELECT COUNT(*) FROM matched))::int AS unmatched
+        ((SELECT COUNT(*) FROM child_with_fk) - (SELECT COUNT(*) FROM matched))::int AS unmatched
       `,
       [tenantId, childLayer.id, foreignKey, parentLayer.id],
     );
@@ -525,6 +531,7 @@ export class RelationshipService {
 
     const summary = rows[0] ?? {
       child_with_fk: '0',
+      total_child: '0',
       matched: '0',
       unmatched: '0',
     };
@@ -547,6 +554,7 @@ export class RelationshipService {
       },
       relationType: config.relationType,
       foreignKey,
+      totalChildRecords: Number(summary.total_child ?? 0),
       childWithForeignKey: Number(summary.child_with_fk ?? 0),
       matched: Number(summary.matched ?? 0),
       unmatched: Number(summary.unmatched ?? 0),

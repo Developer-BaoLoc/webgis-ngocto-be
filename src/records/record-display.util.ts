@@ -23,6 +23,7 @@ export type RecordDisplayField = {
   code: string;
   label: string;
   fieldType: string;
+  dataSchema?: Record<string, unknown>;
   required: boolean;
   value: unknown;
   displayValue: string;
@@ -259,6 +260,7 @@ export function buildRecordDisplayFields(
       code: field.code,
       label: field.label,
       fieldType: field.fieldType,
+      dataSchema: field.dataSchema,
       required: isRequiredField(field),
       value,
       displayValue: formatFieldValue(

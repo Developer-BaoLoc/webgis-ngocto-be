@@ -133,6 +133,16 @@ export function buildStyleConfig(
   geometryType: LayerGeometryType,
   style: Record<string, unknown>,
 ): LayerStyleConfig {
+  if (geometryType === 'sub_layer') {
+    return {
+      geometryType: 'sub_layer',
+      layerRole: 'sub_layer',
+      isSpatial: false,
+      showOnMap: false,
+      showInMapSidebar: false,
+    };
+  }
+
   if (geometryType === 'point') {
     const icon = resolveOptionalLayerIcon(style);
     return {
@@ -202,6 +212,15 @@ export function parseStoredStyleConfig(
         geometryType: 'polygon',
         fillColor: String(styleConfig.fillColor ?? '#3388ff'),
         strokeColor: String(styleConfig.strokeColor ?? '#2266cc'),
+      };
+    }
+    if (styleConfig.geometryType === 'sub_layer') {
+      return {
+        geometryType: 'sub_layer',
+        layerRole: 'sub_layer',
+        isSpatial: false,
+        showOnMap: false,
+        showInMapSidebar: false,
       };
     }
     return styleConfig as LayerStyleConfig;

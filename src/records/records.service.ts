@@ -620,6 +620,8 @@ export class RecordsService implements OnModuleInit {
             code: string;
             label: string;
             fieldType?: string;
+            value?: unknown;
+            dataSchema?: Record<string, unknown>;
             displayValue: string;
             popupStyle?: {
               bold?: boolean;
@@ -638,6 +640,8 @@ export class RecordsService implements OnModuleInit {
               code: field.code,
               label: field.label,
               fieldType: field.fieldType,
+              value: field.value,
+              dataSchema: field.dataSchema,
               displayValue: field.displayValue,
               ...(field.popupStyle ? { popupStyle: field.popupStyle } : {}),
             }));

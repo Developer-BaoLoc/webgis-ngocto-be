@@ -24,7 +24,7 @@ export class UpdateLayerDto {
 
   @IsOptional()
   @IsIn([...LAYER_GEOMETRY_TYPES])
-  geometryType?: 'point' | 'line' | 'polygon';
+  geometryType?: 'point' | 'line' | 'polygon' | 'sub_layer';
 
   @IsOptional()
   @IsInt()

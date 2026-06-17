@@ -1,4 +1,9 @@
-export const LAYER_GEOMETRY_TYPES = ['point', 'line', 'polygon'] as const;
+export const LAYER_GEOMETRY_TYPES = [
+  'point',
+  'line',
+  'polygon',
+  'sub_layer',
+] as const;
 
 export type LayerGeometryType = (typeof LAYER_GEOMETRY_TYPES)[number];
 
@@ -6,6 +11,7 @@ export const GEOMETRY_TYPE_TO_KIND: Record<LayerGeometryType, string> = {
   point: 'point',
   line: 'linestring',
   polygon: 'polygon',
+  sub_layer: 'none',
 };
 
 export const GEOMETRY_KIND_TO_TYPE: Record<string, LayerGeometryType | null> = {
@@ -15,7 +21,7 @@ export const GEOMETRY_KIND_TO_TYPE: Record<string, LayerGeometryType | null> = {
   multilinestring: 'line',
   polygon: 'polygon',
   multipolygon: 'polygon',
-  none: null,
+  none: 'sub_layer',
 };
 
 export type LayerIcon =
@@ -39,10 +45,19 @@ export type PolygonLayerStyle = {
   strokeColor: string;
 };
 
+export type SubLayerStyle = {
+  geometryType: 'sub_layer';
+  layerRole: 'sub_layer';
+  isSpatial: false;
+  showOnMap: false;
+  showInMapSidebar: false;
+};
+
 export type LayerStyleConfig =
   | PointLayerStyle
   | LineLayerStyle
-  | PolygonLayerStyle;
+  | PolygonLayerStyle
+  | SubLayerStyle;
 
 export const LAYER_GEOMETRY_TYPE_CATALOG = [
   {
@@ -75,6 +90,12 @@ export const LAYER_GEOMETRY_TYPE_CATALOG = [
       { key: 'fillColor', label: 'Màu vùng', type: 'color' },
       { key: 'strokeColor', label: 'Màu viền vùng', type: 'color' },
     ],
+  },
+  {
+    type: 'sub_layer' as const,
+    label: 'Lớp phụ',
+    geometryKind: 'none',
+    styleFields: [],
   },
 ];
 

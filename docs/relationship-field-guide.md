@@ -13,8 +13,8 @@ Bước 2: Lưu field Many-to-One trước
 
 Relation Type: Many-to-One
 Target Layer: OCOP
-Foreign Key field: entity_id
 Display Field: chu_the
+Foreign Key field: ocop_id
 Match Field khi import: chu_the
 Nếu import không tìm thấy: Báo lỗi
 
@@ -50,7 +50,7 @@ Target Layer:
 Sản Phẩm OCOP
 
 Foreign Key field:
-entity_id
+ocop_id
 
 Display Field:
 ten_san_pham_ocop

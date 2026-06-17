@@ -841,6 +841,8 @@ export class MetadataService {
       };
     }
 
+    if (stored.geometryType === 'sub_layer') return {};
+
     return {
       fillColor: stored.fillColor,
       strokeColor: stored.strokeColor,

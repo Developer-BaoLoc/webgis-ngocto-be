@@ -44,7 +44,7 @@ export type LayerStyleInput = Record<string, unknown>;
 
 export class CreateLayerDto {
   @IsIn([...LAYER_GEOMETRY_TYPES])
-  geometryType: 'point' | 'line' | 'polygon';
+  geometryType: 'point' | 'line' | 'polygon' | 'sub_layer';
 
   @IsString()
   @MaxLength(255)
