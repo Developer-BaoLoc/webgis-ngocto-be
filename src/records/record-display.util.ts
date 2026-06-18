@@ -4,6 +4,7 @@ import {
   getQuantityUnitLabel,
 } from '../metadata/constants/field-units.constants';
 import { formatAttachmentListDisplay } from './utils/attachment-field.util';
+import { normalizePolygonGeometryValue } from './utils/area-polygon-geometry.util';
 import {
   extractMapPopupStyle,
   isShowOnMapPopupField,
@@ -129,6 +130,23 @@ export function formatFieldValue(
     typeof value === 'object' &&
     value !== null
   ) {
+    const geometry = normalizePolygonGeometryValue(value);
+    if (geometry?.geometry.type === 'Polygon') {
+      return `Polygon - ${geometry.geometry.coordinates[0]?.length ?? 0} đỉnh`;
+    }
+    if (geometry?.geometry.type === 'MultiPolygon') {
+      const count = geometry.geometry.coordinates.reduce(
+        (total, polygon) =>
+          total +
+          polygon.reduce(
+            (ringTotal, ring) => ringTotal + (Array.isArray(ring) ? ring.length : 0),
+            0,
+          ),
+        0,
+      );
+      return `MultiPolygon - ${count} đỉnh`;
+    }
+
     const coordinates = (value as { coordinates?: unknown }).coordinates;
     if (Array.isArray(coordinates)) {
       return `${coordinates.length} điểm`;

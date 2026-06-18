@@ -1,6 +1,7 @@
 import { parseLatLngValue } from '../utils/lat-lng-geometry.util';
 import {
   normalizeAreaPolygonValue,
+  normalizePolygonGeometryValue,
   parseAreaPolygonValue,
 } from '../utils/area-polygon-geometry.util';
 import {
@@ -349,18 +350,22 @@ const areaPolygonHandler: FieldTypeHandler = {
     if (isEmpty(value)) return null;
 
     const parsed = parseAreaPolygonValue(value);
-    if (!parsed) {
+    const polygonGeometry = normalizePolygonGeometryValue(value);
+    if (!parsed && !polygonGeometry) {
       return {
         field: '',
         code: 'INVALID_TYPE',
         message:
-          'Phải là { coordinates: [{ lat, lng }, ...] } với ít nhất 3 điểm',
+          'Phải là Polygon/MultiPolygon GeoJSON hoặc { coordinates: [{ lat, lng }, ...] } với ít nhất 3 điểm',
       };
     }
 
     return null;
   },
   normalize(value) {
+    const polygonGeometry = normalizePolygonGeometryValue(value);
+    if (polygonGeometry) return polygonGeometry.geometry;
+
     const parsed = parseAreaPolygonValue(value);
     if (!parsed) return null;
     return normalizeAreaPolygonValue(parsed);

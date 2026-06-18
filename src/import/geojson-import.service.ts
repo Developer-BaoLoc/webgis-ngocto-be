@@ -26,6 +26,10 @@ import type {
 } from './import-column-discovery';
 import { RelationshipService } from '../metadata/relationship.service';
 import { isLineFieldType } from '../records/utils/line-geometry.util';
+import {
+  isPolygonFieldType,
+  normalizePolygonGeometryValue,
+} from '../records/utils/area-polygon-geometry.util';
 
 const { pick } = require('stream-json/filters/pick.js') as {
   pick: (options: { filter: string }) => NodeJS.ReadWriteStream;
@@ -57,6 +61,7 @@ type PreparedFeature = {
   rowNumber: number;
   properties: Record<string, unknown>;
   geometry: GeoJsonGeometry;
+  warnings: string[];
 };
 
 const GEOJSON_GEOMETRY_SOURCE_KEYS = new Set(['geometry', '__geometry__']);
@@ -91,6 +96,18 @@ export type GeoJsonImportErrorItem = {
   reason: string;
 };
 
+export type GeoJsonImportWarningItem = {
+  rowNumber: number;
+  message: string;
+};
+
+export type GeoJsonPolygonStats = {
+  total: number;
+  valid: number;
+  autoClosed: number;
+  invalid: number;
+};
+
 export type GeoJsonImportSummary = {
   importId: string;
   layerId: string;
@@ -99,8 +116,10 @@ export type GeoJsonImportSummary = {
   rejected: number;
   inserted?: number;
   geometryTypes: Record<string, number>;
+  polygonStats: GeoJsonPolygonStats;
   sample: GeoJsonImportSampleItem[];
   errors: GeoJsonImportErrorItem[];
+  warnings: GeoJsonImportWarningItem[];
   detectedColumns?: string[];
   existingFields?: string[];
   unknownColumns?: string[];
@@ -260,8 +279,15 @@ export class GeoJsonImportService {
   ): Promise<GeoJsonImportSummary> {
     const filePath = this.resolveFilePath(context.options.importId);
     const geometryTypes: Record<string, number> = {};
+    const polygonStats: GeoJsonPolygonStats = {
+      total: 0,
+      valid: 0,
+      autoClosed: 0,
+      invalid: 0,
+    };
     const sample: GeoJsonImportSampleItem[] = [];
     const errors: GeoJsonImportErrorItem[] = [];
+    const warnings: GeoJsonImportWarningItem[] = [];
     let totalFeatures = 0;
     let accepted = 0;
     let rejected = 0;
@@ -318,17 +344,24 @@ export class GeoJsonImportService {
 
     for await (const feature of this.iterateFeatures(filePath)) {
       totalFeatures += 1;
+      const rawGeometryType = feature?.geometry?.type;
+      if (rawGeometryType && this.isPolygonGeometryType(rawGeometryType)) {
+        polygonStats.total += 1;
+      }
       const prepared = await this.prepareFeature(
         feature,
         totalFeatures,
         context,
       );
-      const geometryType = feature?.geometry?.type;
+      const geometryType = rawGeometryType;
       if (geometryType) {
         geometryTypes[geometryType] = (geometryTypes[geometryType] ?? 0) + 1;
       }
 
       if ('error' in prepared) {
+        if (rawGeometryType && this.isPolygonGeometryType(rawGeometryType)) {
+          polygonStats.invalid += 1;
+        }
         rejected += 1;
         if (errors.length < 50) {
           errors.push({
@@ -337,6 +370,22 @@ export class GeoJsonImportService {
           });
         }
         continue;
+      }
+
+      if (this.isPolygonGeometry(prepared.feature.geometry)) {
+        polygonStats.valid += 1;
+        if (prepared.feature.warnings.length > 0) {
+          polygonStats.autoClosed += 1;
+        }
+      }
+      for (const message of prepared.feature.warnings.slice(
+        0,
+        Math.max(0, 50 - warnings.length),
+      )) {
+        warnings.push({
+          rowNumber: prepared.feature.rowNumber,
+          message,
+        });
       }
 
       batch.push(prepared.feature);
@@ -355,8 +404,10 @@ export class GeoJsonImportService {
       rejected,
       ...(options.insert ? { inserted } : {}),
       geometryTypes,
+      polygonStats,
       sample,
       errors,
+      warnings,
     };
   }
 
@@ -373,8 +424,13 @@ export class GeoJsonImportService {
       return { error: 'Feature thiếu geometry' };
     }
 
+    const normalizedGeometry = this.normalizeFeatureGeometry(feature.geometry);
+    if ('error' in normalizedGeometry) {
+      return { error: normalizedGeometry.error };
+    }
+
     const geometryError = this.validateGeometry(
-      feature.geometry,
+      normalizedGeometry.geometry,
       context.layer.geometryKind,
     );
     if (geometryError) {
@@ -385,7 +441,7 @@ export class GeoJsonImportService {
       feature.properties ?? {},
       context.schema.fields,
       context.options.propertyMapping ?? {},
-      feature.geometry,
+      normalizedGeometry.geometry,
     );
     const { rows, errors: relationshipErrors } =
       await this.relationshipService.normalizeImportRows(
@@ -419,7 +475,8 @@ export class GeoJsonImportService {
           context.schema.fields,
           resolvedProperties,
         ),
-        geometry: feature.geometry,
+        geometry: normalizedGeometry.geometry,
+        warnings: normalizedGeometry.warnings,
       },
     };
   }
@@ -441,6 +498,14 @@ export class GeoJsonImportService {
       if (
         isLineFieldType(field.fieldType) &&
         this.isLineGeometry(geometry) &&
+        (!overrideKey || GEOJSON_GEOMETRY_SOURCE_KEYS.has(overrideKey))
+      ) {
+        mapped[field.code] = geometry;
+        continue;
+      }
+      if (
+        isPolygonFieldType(field.fieldType) &&
+        this.isPolygonGeometry(geometry) &&
         (!overrideKey || GEOJSON_GEOMETRY_SOURCE_KEYS.has(overrideKey))
       ) {
         mapped[field.code] = geometry;
@@ -469,7 +534,9 @@ export class GeoJsonImportService {
     const candidates = [
       field.code,
       field.label,
-      ...(isLineFieldType(field.fieldType) ? ['geometry', '__geometry__'] : []),
+      ...(isLineFieldType(field.fieldType) || isPolygonFieldType(field.fieldType)
+        ? ['geometry', '__geometry__']
+        : []),
       ...this.osmAliasesForField(field.code),
     ];
 
@@ -515,10 +582,44 @@ export class GeoJsonImportService {
     return null;
   }
 
+  private normalizeFeatureGeometry(
+    geometry: GeoJsonGeometry,
+  ): { geometry: GeoJsonGeometry; warnings: string[] } | { error: string } {
+    if (this.isPolygonGeometry(geometry)) {
+      const normalized = normalizePolygonGeometryValue(geometry);
+      if (!normalized) {
+        return {
+          error:
+            'Polygon/MultiPolygon không hợp lệ: ring phải có ít nhất 3 đỉnh, mỗi điểm là [lng, lat], và hệ thống sẽ tự đóng vòng nếu thiếu điểm cuối',
+        };
+      }
+
+      return {
+        geometry: normalized.geometry,
+        warnings:
+          normalized.autoClosedRings > 0
+            ? [
+                `Polygon đã được tự động đóng ${normalized.autoClosedRings} vòng tọa độ.`,
+              ]
+            : [],
+      };
+    }
+
+    return { geometry, warnings: [] };
+  }
+
   private isLineGeometry(geometry: GeoJsonGeometry): boolean {
     return (
       geometry.type === 'LineString' || geometry.type === 'MultiLineString'
     );
+  }
+
+  private isPolygonGeometry(geometry: GeoJsonGeometry): boolean {
+    return this.isPolygonGeometryType(geometry.type);
+  }
+
+  private isPolygonGeometryType(geometryType: string): boolean {
+    return geometryType === 'Polygon' || geometryType === 'MultiPolygon';
   }
 
   private async applySpatialFilter(
@@ -756,12 +857,32 @@ export class GeoJsonImportService {
     const hasLineField = schema.fields.some((field) =>
       isLineFieldType(field.fieldType),
     );
+    const hasPolygonField = schema.fields.some((field) =>
+      isPolygonFieldType(field.fieldType),
+    );
 
     for await (const feature of this.iterateFeatures(filePath)) {
       if (
         feature.geometry &&
         this.isLineGeometry(feature.geometry) &&
         !hasLineField
+      ) {
+        const current =
+          columns.get('geometry') ??
+          ({
+            code: 'geometry',
+            label: 'Geometry',
+            values: [],
+          } satisfies ImportDetectedColumn);
+        if (current.values.length < sampleSize) {
+          current.values.push(feature.geometry);
+        }
+        columns.set('geometry', current);
+      }
+      if (
+        feature.geometry &&
+        this.isPolygonGeometry(feature.geometry) &&
+        !hasPolygonField
       ) {
         const current =
           columns.get('geometry') ??
@@ -834,7 +955,7 @@ export function geometryMatchesKind(
         geometryType === 'LineString' || geometryType === 'MultiLineString'
       );
     case 'polygon':
-      return geometryType === 'Polygon';
+      return geometryType === 'Polygon' || geometryType === 'MultiPolygon';
     case 'multipolygon':
       return geometryType === 'Polygon' || geometryType === 'MultiPolygon';
     default:

@@ -21,7 +21,7 @@ describe('geojson-import helpers', () => {
 
     it('matches polygon and multipolygon according to layer geometry kind', () => {
       expect(geometryMatchesKind('Polygon', 'polygon')).toBe(true);
-      expect(geometryMatchesKind('MultiPolygon', 'polygon')).toBe(false);
+      expect(geometryMatchesKind('MultiPolygon', 'polygon')).toBe(true);
       expect(geometryMatchesKind('Polygon', 'multipolygon')).toBe(true);
       expect(geometryMatchesKind('MultiPolygon', 'multipolygon')).toBe(true);
     });
@@ -64,6 +64,24 @@ describe('geojson-import helpers', () => {
           },
         ]).suggestedType,
       ).toBe('line');
+    });
+
+    it('suggests area_polygon for GeoJSON Polygon geometry samples', () => {
+      expect(
+        suggestImportFieldType([
+          {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [105.6068, 9.7248],
+                [105.6079, 9.7252],
+                [105.6084, 9.7242],
+                [105.6068, 9.7248],
+              ],
+            ],
+          },
+        ]).suggestedType,
+      ).toBe('area_polygon');
     });
   });
 });

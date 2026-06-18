@@ -69,6 +69,15 @@ function parseLineGeometryLike(value: unknown): boolean {
   );
 }
 
+function parsePolygonGeometryLike(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as { type?: unknown; coordinates?: unknown };
+  return (
+    (record.type === 'Polygon' || record.type === 'MultiPolygon') &&
+    Array.isArray(record.coordinates)
+  );
+}
+
 function confidence(matches: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((matches / total) * 100) / 100;
@@ -92,6 +101,14 @@ export function suggestImportFieldType(values: unknown[]): {
     return {
       suggestedType: 'line',
       confidence: confidence(lineMatches, samples.length),
+    };
+  }
+
+  const polygonMatches = samples.filter(parsePolygonGeometryLike).length;
+  if (polygonMatches === samples.length) {
+    return {
+      suggestedType: 'area_polygon',
+      confidence: confidence(polygonMatches, samples.length),
     };
   }
 
