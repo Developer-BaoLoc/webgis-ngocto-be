@@ -23,6 +23,7 @@ psql "$DATABASE_URL" -f migrations/004_import_audit_outbox.sql
 psql "$DATABASE_URL" -f migrations/005_governance.sql
 psql "$DATABASE_URL" -f migrations/006_analytics.sql
 psql "$DATABASE_URL" -f migrations/007_triggers.sql
+psql "$DATABASE_URL" -f migrations/010_saved_views.sql
 psql "$DATABASE_URL" -f migrations/008_seed_long_binh.sql   # optional dev seed
 ```
 
@@ -38,6 +39,7 @@ psql "$DATABASE_URL" -f migrations/008_seed_long_binh.sql   # optional dev seed
 | 006 | Datasets, metrics, dashboards |
 | 007 | Validation triggers (geometry, relations, cardinality) |
 | 008 | Seed Long Bình (dev) |
+| 010 | Saved Views cho dashboard/query engine |
 
 ## Nguyên tắc v3.2
 

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  Allow,
   IsArray,
   IsIn,
   IsObject,
@@ -16,15 +17,33 @@ export class AnalyticsFilterDto {
   fieldCode: string;
 
   @IsOptional()
-  @IsIn(['eq', 'neq', 'in'])
+  @IsIn([
+    'eq',
+    'neq',
+    'in',
+    'contains',
+    'not_contains',
+    'gt',
+    'gte',
+    'lt',
+    'lte',
+    'empty',
+    'not_empty',
+  ])
   operator?: string;
 
+  @Allow()
   value: unknown;
 }
 
 export class AnalyticsQueryDto {
+  @IsOptional()
   @IsUUID()
-  layerId: string;
+  layerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  viewId?: string;
 
   @IsIn(['count', 'sum', 'avg'])
   aggregation: 'count' | 'sum' | 'avg';
@@ -35,7 +54,15 @@ export class AnalyticsQueryDto {
 
   @IsOptional()
   @IsString()
+  metricField?: string;
+
+  @IsOptional()
+  @IsString()
   groupByFieldCode?: string;
+
+  @IsOptional()
+  @IsString()
+  dimensionField?: string;
 
   @IsOptional()
   @IsArray()

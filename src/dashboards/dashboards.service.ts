@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import {
   DashboardEntity,
   DashboardRevisionEntity,
@@ -48,6 +48,22 @@ export class DashboardsService {
       order: { updatedAt: 'DESC' },
     });
 
+    const revisions = items.length
+      ? await this.revisionsRepository.find({
+          where: { dashboardId: In(items.map((item) => item.id)), tenantId },
+        })
+      : [];
+    const dashboardIdsWithDraft = new Set(
+      revisions
+        .filter((revision) => revision.publishedAt === null)
+        .map((revision) => revision.dashboardId),
+    );
+    const dashboardIdsWithPublished = new Set(
+      revisions
+        .filter((revision) => revision.publishedAt !== null)
+        .map((revision) => revision.dashboardId),
+    );
+
     return items
       .filter(
         (item) =>
@@ -55,7 +71,11 @@ export class DashboardsService {
           item.ownerUserId === userId ||
           item.scope === 'organization',
       )
-      .map((item) => this.toSummary(item));
+      .map((item) => ({
+        ...this.toSummary(item),
+        hasDraft: dashboardIdsWithDraft.has(item.id),
+        hasPublished: dashboardIdsWithPublished.has(item.id),
+      }));
   }
 
   async create(tenantId: string, userId: string, dto: CreateDashboardDto) {
@@ -106,6 +126,9 @@ export class DashboardsService {
     this.assertCanView(dashboard, userId);
 
     const revision = await this.resolveRevision(dashboard, mode);
+    if (mode === 'published' && !revision) {
+      throw new BadRequestException('Dashboard này chưa được xuất bản.');
+    }
     const widgets = revision
       ? await this.widgetsRepository.find({
           where: { dashboardRevisionId: revision.id },
@@ -125,6 +148,8 @@ export class DashboardsService {
             publishedAt: revision.publishedAt,
           }
         : null,
+      revisionStatus: revision?.publishedAt ? 'published' : 'draft',
+      version: revision?.version,
       widgets: widgets.map((widget) => this.toWidgetSummary(widget)),
     };
   }
@@ -273,12 +298,21 @@ export class DashboardsService {
       layerCode: string;
       layerName: string;
       geometryType: string | null;
-      fields: Array<{ code: string; label: string; fieldType: string }>;
+      fields: Array<{
+        code: string;
+        label: string;
+        fieldType: string;
+        dataSchema: Record<string, unknown>;
+      }>;
     }> = [];
 
     for (const layer of layers) {
-      let fields: Array<{ code: string; label: string; fieldType: string }> =
-        [];
+      let fields: Array<{
+        code: string;
+        label: string;
+        fieldType: string;
+        dataSchema: Record<string, unknown>;
+      }> = [];
       try {
         const schema = await this.metadataService.getPublishedSchema(
           tenantId,
@@ -288,6 +322,7 @@ export class DashboardsService {
           code: field.code,
           label: field.label,
           fieldType: field.fieldType,
+          dataSchema: field.dataSchema,
         }));
       } catch {
         try {
@@ -299,6 +334,7 @@ export class DashboardsService {
             code: field.code,
             label: field.label,
             fieldType: field.fieldType,
+            dataSchema: field.dataSchema,
           }));
         } catch {
           fields = [];
@@ -372,13 +408,14 @@ export class DashboardsService {
       return this.getEditableRevision(dashboard);
     }
 
-    if (dashboard.currentRevisionId) {
-      return this.revisionsRepository.findOne({
-        where: { id: dashboard.currentRevisionId, dashboardId: dashboard.id },
-      });
-    }
-
-    return null;
+    return this.revisionsRepository.findOne({
+      where: {
+        dashboardId: dashboard.id,
+        tenantId: dashboard.tenantId,
+        publishedAt: Not(IsNull()),
+      },
+      order: { version: 'DESC' },
+    });
   }
 
   private async findDashboard(tenantId: string, dashboardId: string) {
@@ -410,6 +447,7 @@ export class DashboardsService {
       id: dashboard.id,
       code: dashboard.code,
       name: dashboard.name,
+      description: dashboard.description,
       scope: dashboard.scope,
       status: dashboard.status,
       currentRevisionId: dashboard.currentRevisionId,

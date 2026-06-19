@@ -21,6 +21,7 @@ FILES=(
   005_governance.sql
   006_analytics.sql
   007_triggers.sql
+  010_saved_views.sql
 )
 
 RUN_SEED="${RUN_SEED:-false}"
@@ -54,8 +55,20 @@ bootstrap_existing_database() {
 
   ensure_migrations_table
 
+  # Chỉ bootstrap bộ schema legacy đã tồn tại trước khi có migration tracking.
+  # Migration mới tuyệt đối không được tự đánh dấu nếu chưa thực thi.
+  local legacy_files=(
+    001_foundation.sql
+    002_metadata.sql
+    003_records.sql
+    004_import_audit_outbox.sql
+    005_governance.sql
+    006_analytics.sql
+    007_triggers.sql
+  )
+
   local file
-  for file in "${FILES[@]}"; do
+  for file in "${legacy_files[@]}"; do
     if migration_applied "$file"; then
       continue
     fi
