@@ -5,15 +5,15 @@ export default () => ({
     `http://localhost:${process.env.PORT ?? '4000'}`,
   nodeEnv: process.env.NODE_ENV ?? 'development',
   ward: {
-    name: process.env.WARD_NAME ?? 'Long Bình',
-    code: process.env.WARD_CODE ?? 'long-binh',
-    district: process.env.WARD_DISTRICT ?? 'Cái Răng',
+    name: process.env.WARD_NAME ?? 'Ngọc Tố',
+    code: process.env.WARD_CODE ?? 'ngoc-to',
+    district: process.env.WARD_DISTRICT ?? 'Mỹ Xuyên',
     province: process.env.WARD_PROVINCE ?? 'Cần Thơ',
     country: 'Việt Nam',
     defaultZoom: parseInt(process.env.WARD_DEFAULT_ZOOM ?? '13', 10),
     center: {
-      lat: parseFloat(process.env.WARD_CENTER_LAT ?? '10.0125'),
-      lng: parseFloat(process.env.WARD_CENTER_LNG ?? '105.785'),
+      lat: parseFloat(process.env.WARD_CENTER_LAT ?? '9.4466'),
+      lng: parseFloat(process.env.WARD_CENTER_LNG ?? '105.9342'),
     },
     boundary: {
       datasetFile: process.env.WARD_BOUNDARY_DATASET ?? 'can-tho.geojson',
@@ -21,16 +21,16 @@ export default () => ({
       matchValue:
         process.env.WARD_BOUNDARY_MATCH_VALUE ??
         process.env.WARD_NAME ??
-        'Long Bình',
+        'Ngọc Tố',
       adminCodeProperty:
         process.env.WARD_BOUNDARY_ADMIN_CODE_PROPERTY ?? 'ma_xa',
-      adminCode: process.env.WARD_BOUNDARY_ADMIN_CODE ?? '31473',
+      adminCode: process.env.WARD_BOUNDARY_ADMIN_CODE ?? '31723',
     },
   },
   database: {
     host: process.env.DATABASE_HOST ?? 'localhost',
-    port: parseInt(process.env.DATABASE_PORT ?? '5434', 10),
-    name: process.env.DATABASE_NAME ?? 'gis_longbinh',
+    port: parseInt(process.env.DATABASE_PORT ?? '5435', 10),
+    name: process.env.DATABASE_NAME ?? 'gis_ngocto',
     user: process.env.DATABASE_USER ?? 'postgres',
     password: process.env.DATABASE_PASSWORD ?? 'postgres',
     logging: process.env.DATABASE_LOGGING === 'true',
@@ -52,7 +52,7 @@ export default () => ({
     port: parseInt(process.env.MINIO_PORT ?? '9000', 10),
     accessKey: process.env.MINIO_ACCESS_KEY ?? 'minioadmin',
     secretKey: process.env.MINIO_SECRET_KEY ?? 'minioadmin',
-    bucket: process.env.MINIO_BUCKET ?? 'gis-longbinh',
+    bucket: process.env.MINIO_BUCKET ?? 'gis-ngocto',
     useSSL: process.env.MINIO_USE_SSL === 'true',
   },
 });

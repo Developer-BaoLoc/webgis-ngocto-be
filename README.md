@@ -1,4 +1,4 @@
-# GIS Long Bình — Backend API
+# GIS Ngọc Tố — Backend API
 
 Hệ thống GIS metadata-driven cho **phường/xã** — NestJS + PostgreSQL/PostGIS + Redis + MinIO.
 
@@ -29,8 +29,8 @@ Một codebase có thể phục vụ nhiều phường: chỉ cần đổi biế
 ### 1. Clone và cài dependency
 
 ```bash
-git clone <repo-url> gis_longbinh
-cd gis_longbinh
+git clone <repo-url> gis_ngocto
+cd gis_ngocto
 yarn install
 ```
 
@@ -40,13 +40,13 @@ yarn install
 cp .env.example .env
 ```
 
-Chỉnh `.env` theo phường triển khai. Mặc định repo này trỏ **Phường Long Bình, Cần Thơ**:
+Chỉnh `.env` theo phường triển khai. Mặc định repo này trỏ **Xã Ngọc Tố, Cần Thơ**:
 
 ```env
-WARD_NAME=Long Bình
-WARD_CODE=long-binh
+WARD_NAME=Ngọc Tố
+WARD_CODE=ngoc-to
 WARD_BOUNDARY_DATASET=can-tho.geojson
-WARD_BOUNDARY_ADMIN_CODE=31473
+WARD_BOUNDARY_ADMIN_CODE=31723
 ```
 
 Xem đầy đủ biến trong [.env.example](./.env.example).
@@ -61,7 +61,7 @@ Services:
 
 | Service | Port | Ghi chú |
 |---------|------|---------|
-| PostgreSQL + PostGIS | 5434 | DB `gis_longbinh` |
+| PostgreSQL + PostGIS | 5435 | DB `gis_ngocto` |
 | Redis | 6379 | BullMQ queue |
 | MinIO | 9000 (API), 9001 (console) | Object storage |
 
@@ -71,9 +71,9 @@ Services:
 yarn db:migrate
 ```
 
-### 4. Seed dữ liệu dev (Long Bình)
+### 4. Seed dữ liệu dev (Ngọc Tố)
 
-Chỉ dùng khi setup **Phường Long Bình** — tạo tenant, user admin, lớp dữ liệu mẫu:
+Chỉ dùng khi setup **Xã Ngọc Tố** — tạo tenant, user admin, lớp dữ liệu mẫu:
 
 ```bash
 yarn db:seed
@@ -81,7 +81,7 @@ yarn db:seed
 
 Tài khoản dev (sau seed):
 
-- Email: `admin@longbinh.local`
+- Email: `admin@ngocto.local`
 - Password: `Admin@123`
 
 > **Phường khác:** không chạy `db:seed`. Tạo tenant/user/lớp qua API hoặc SQL riêng; cập nhật `DEFAULT_TENANT_ID` trong `.env`.
@@ -114,7 +114,7 @@ curl -s http://localhost:4000/api/layers/administrative-boundary | jq '.type'
 
 ```env
 DATABASE_NAME=gis_an_khanh
-DATABASE_URL=postgresql://postgres:postgres@localhost:5434/gis_an_khanh
+DATABASE_URL=postgresql://postgres:postgres@localhost:5435/gis_an_khanh
 MINIO_BUCKET=gis-an-khanh
 
 WARD_NAME=An Khánh
@@ -127,7 +127,7 @@ DEFAULT_TENANT_ID=<uuid tenant mới>
 ```
 
 3. **GeoJSON** — đặt file tỉnh vào `data/ward-boundaries/` (vd. `can-tho.geojson`). Tra `ma_xa` / `ten_xa` trong properties của feature.
-4. **Migration** — `yarn db:migrate` (không seed Long Bình).
+4. **Migration** — `yarn db:migrate` (không seed Ngọc Tố).
 5. **Restart API** — BE tự tính `center`, `bounds` từ geometry ranh giới.
 
 Chi tiết: [data/ward-boundaries/README.md](./data/ward-boundaries/README.md).
@@ -146,8 +146,8 @@ Chi tiết: [data/ward-boundaries/README.md](./data/ward-boundaries/README.md).
 ### 1. Clone và build
 
 ```bash
-git clone <repo-url> /opt/gis_longbinh
-cd /opt/gis_longbinh
+git clone <repo-url> /opt/gis_ngocto
+cd /opt/gis_ngocto
 yarn install --frozen-lockfile
 yarn build
 ```
@@ -190,7 +190,7 @@ Trên server có Postgres + PostGIS:
 # Tạo DB (một lần)
 psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 yarn db:migrate
-# Chỉ seed Long Bình nếu đúng tenant đó:
+# Chỉ seed Ngọc Tố nếu đúng tenant đó:
 # yarn db:seed
 ```
 
@@ -208,7 +208,7 @@ yarn db:migrate
 - Đặt `DATABASE_PASSWORD`, `MINIO_SECRET_KEY` mạnh trong `.env` (khớp `DATABASE_*` / `MINIO_*` của NestJS).
 - **Không** chạy `docker compose down -v` trên production (xóa volume = mất DB + ảnh).
 - Nếu port host `6379` đã dùng: thêm `REDIS_PUBLISH_PORT=6380` và `REDIS_PORT=6380` trong `.env`.
-- Kiểm tra firewall: `sudo ufw status` — chỉ mở 80/443/SSH, **không** mở 5434/9000.
+- Kiểm tra firewall: `sudo ufw status` — chỉ mở 80/443/SSH, **không** mở 5435/9000.
 
 Nếu trước đó đã expose port ra internet, sau khi sửa compose:
 
@@ -230,8 +230,8 @@ After=network.target docker.service
 [Service]
 Type=simple
 User=www-data
-WorkingDirectory=/opt/gis_longbinh
-EnvironmentFile=/opt/gis_longbinh/.env
+WorkingDirectory=/opt/gis_ngocto
+EnvironmentFile=/opt/gis_ngocto/.env
 ExecStart=/usr/bin/node dist/main.js
 Restart=on-failure
 RestartSec=5
@@ -270,7 +270,7 @@ Frontend (repo riêng) trỏ `VITE_API_URL` (hoặc tương đương) tới `htt
 ### 6. Cập nhật phiên bản
 
 ```bash
-cd /opt/gis_longbinh
+cd /opt/gis_ngocto
 git pull
 yarn install --frozen-lockfile
 yarn build
@@ -286,7 +286,7 @@ sudo systemctl restart gis-api
 |------|--------|
 | `yarn db:up` | Docker: Postgres, Redis, MinIO |
 | `yarn db:migrate` | Chạy migration SQL |
-| `yarn db:seed` | Seed Long Bình (dev) |
+| `yarn db:seed` | Seed Ngọc Tố (dev) |
 | `yarn db:reset` | Xóa volume Docker + migrate lại |
 | `yarn start:dev` | API watch mode |
 | `yarn build` | Build production → `dist/` |

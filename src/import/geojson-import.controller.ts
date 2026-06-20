@@ -31,8 +31,9 @@ import {
 import { AuthenticatedUser } from '../common/types/api.types';
 import { apiResponse } from '../common/utils/api-response.util';
 import { assertAdminUser } from '../common/utils/admin-role.util';
+import { IMPORT_UPLOAD_DIR } from './import-file.util';
 
-const uploadDir = path.join(process.cwd(), 'uploads', 'imports');
+const uploadDir = IMPORT_UPLOAD_DIR;
 
 @ApiTags('GeoJSON import')
 @ApiBearerAuth()

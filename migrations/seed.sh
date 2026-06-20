@@ -10,7 +10,7 @@ if [[ -f "$ROOT_DIR/.env" && -z "${DATABASE_URL:-}" ]]; then
   set +a
 fi
 
-DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}"
+DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_ngocto}"
 
 ensure_migrations_table() {
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "
@@ -41,12 +41,12 @@ run_seed_file() {
 echo "Running seed against: $DATABASE_URL"
 ensure_migrations_table
 
-for file in 008_seed_long_binh.sql 009_layer_seed.sql; do
+for file in 008_seed_ngoc_to.sql 009_layer_seed.sql; do
   if migration_applied "$file"; then
     echo "==> skip $file (already applied)"
     continue
   fi
-  if [[ "$file" == "008_seed_long_binh.sql" ]]; then
+  if [[ "$file" == "008_seed_ngoc_to.sql" ]]; then
     has_tenant="$(psql "$DATABASE_URL" -tAc "SELECT 1 FROM tenants WHERE id = 'a0000000-0000-4000-8000-000000000001' LIMIT 1" || true)"
     if [[ "$has_tenant" == "1" ]]; then
       echo "==> skip $file (tenant already exists)"

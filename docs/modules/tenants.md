@@ -19,11 +19,11 @@ Trả tenant context của user đang đăng nhập.
 {
   "data": {
     "id": "a0000000-0000-4000-8000-000000000001",
-    "code": "long-binh",
-    "name": "Phường Long Bình",
+    "code": "ngoc-to",
+    "name": "Xã Ngọc Tố",
     "settings": {
-      "ward": "Long Bình",
-      "district": "Cái Răng",
+      "ward": "Ngọc Tố",
+      "district": "Mỹ Xuyên",
       "province": "Cần Thơ"
     }
   },

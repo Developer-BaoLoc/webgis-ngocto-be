@@ -10,7 +10,7 @@ export class IrrigationService extends BaseGisLayerService {
       id: GisLayerType.IRRIGATION,
       name: LAYER_DISPLAY_NAMES[GisLayerType.IRRIGATION],
       description:
-        'Lớp dữ liệu công trình thủy lợi: kênh, mương, cống, trạm bơm trên địa bàn phường Long Bình',
+        'Lớp dữ liệu công trình thủy lợi: kênh, mương, cống, trạm bơm trên địa bàn xã Ngọc Tố',
       geometryType: GeometryType.LINESTRING,
       status: LayerStatus.PLANNED,
       endpoint: '/api/layers/irrigation',

@@ -17,8 +17,8 @@ Health check API và endpoint root — frontend/CI kiểm tra service sống + D
 {
   "data": {
     "status": "ok",
-    "service": "GIS Long Bình API",
-    "ward": "Long Bình, Cái Răng, Cần Thơ",
+    "service": "GIS Ngọc Tố API",
+    "ward": "Ngọc Tố, Mỹ Xuyên, Cần Thơ",
     "docs": "/api/layers"
   },
   "meta": { "requestId": "...", "timestamp": "..." }

@@ -38,7 +38,7 @@ function authHeaders(token: string) {
 }
 ```
 
-Dev seed: `admin@longbinh.local` / `Admin@123`
+Dev seed: `admin@ngocto.local` / `Admin@123`
 
 ## 2.1. Map — zoom phường + vẽ ranh (khi vào app)
 
@@ -699,7 +699,7 @@ Giá trị record:
 ```json
 {
   "properties": {
-    "vi_tri": { "lat": 10.0125, "lng": 105.785 }
+    "vi_tri": { "lat": 9.4466, "lng": 105.9342 }
   }
 }
 ```
@@ -964,7 +964,7 @@ Geometry optional:
 ```json
 {
   "properties": { "ten_tram_bom": "Trạm Bình Lợi" },
-  "geometry": { "type": "Point", "coordinates": [105.785, 10.0125] }
+  "geometry": { "type": "Point", "coordinates": [105.9342, 9.4466] }
 }
 ```
 
@@ -1009,7 +1009,7 @@ const { data: featureCollection } = await res.json();
 **Quan trọng — `bbox`:**
 
 - Lần đầu load map: **không gửi `bbox`** (hoặc dùng `project.mapView.bounds` từ `GET /api/layers`).
-- Không hardcode bbox quanh `10.01, 105.78` — Long Bình thực tế ~**lat 9.68–9.78**, **lng 105.55–105.62**.
+- Không hardcode bbox quanh `10.01, 105.78` — Ngọc Tố thực tế ~**lat 9.68–9.78**, **lng 105.55–105.62**.
 - Ví dụ bbox sai → 0 điểm dù DB có dữ liệu.
 
 ```
@@ -1129,11 +1129,11 @@ const { data: options } = await fetch(
 | **Form thêm/sửa** | render input từ `fieldType` + `dataSchema` |
 | **Bản đồ** | `GET /layers` → `mapView` + `GET /layers/:id/geojson` (dùng `response.data`) |
 
-## 7. Ví dụ Long Bình — tạo layer HTX
+## 7. Ví dụ Ngọc Tố — tạo layer HTX
 
 ```typescript
 // 1. Login
-const token = await login('admin@longbinh.local', 'Admin@123');
+const token = await login('admin@ngocto.local', 'Admin@123');
 const h = authHeaders(token);
 
 // 2. Upload icon

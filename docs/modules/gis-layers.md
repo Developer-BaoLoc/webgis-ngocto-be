@@ -19,12 +19,12 @@ Trả danh mục lớp GIS + cấu hình bản đồ (center, zoom) cho frontend
 ```json
 {
   "project": {
-    "name": "GIS Long Bình",
-    "description": "Hệ thống thông tin địa lý phường Long Bình, Cần Thơ",
-    "ward": "Long Bình",
-    "district": "Cái Răng",
+    "name": "GIS Ngọc Tố",
+    "description": "Hệ thống thông tin địa lý xã Ngọc Tố, Cần Thơ",
+    "ward": "Ngọc Tố",
+    "district": "Mỹ Xuyên",
     "province": "Cần Thơ",
-    "center": { "lat": 10.0125, "lng": 105.785 },
+    "center": { "lat": 9.4466, "lng": 105.9342 },
     "defaultZoom": 14
   },
   "layers": [
@@ -91,7 +91,7 @@ User chọn layer → GET {layer.endpoint} → GeoJSON source
 
 ```bash
 curl -s http://localhost:4000/api/layers | jq
-yarn test:e2e   # expects project.name === "GIS Long Bình", 4 layers
+yarn test:e2e   # expects project.name === "GIS Ngọc Tố", 4 layers
 ```
 
 ## Changelog

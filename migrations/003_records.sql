@@ -1,5 +1,5 @@
 -- 003_records.sql
--- GIS Long Bình v3.2 — Features, relations, dictionaries, attachments
+-- GIS Ngọc Tố v3.2 — Features, relations, dictionaries, attachments
 
 BEGIN;
 

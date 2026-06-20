@@ -55,7 +55,7 @@ Phiên bản: **v3.1** · Cập nhật: 2026-06-13
 ### 2.2. Multi-tenant từ Phase 0
 
 - Mọi entity nghiệp vụ có `tenant_id`
-- Long Bình = tenant đầu tiên ngay từ đầu
+- Ngọc Tố = tenant đầu tiên ngay từ đầu
 - Phase 5 chỉ mở rộng provisioning/quota, **không** thêm tenant muộn
 
 ### 2.3. Resource scope

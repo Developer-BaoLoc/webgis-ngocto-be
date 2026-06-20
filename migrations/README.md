@@ -1,4 +1,4 @@
-# Database Migrations — GIS Long Bình v3.2
+# Database Migrations — GIS Ngọc Tố v3.2
 
 PostgreSQL 15+ với PostGIS 3+.
 
@@ -14,7 +14,7 @@ docker compose up -d postgres
 ### Thủ công
 
 ```bash
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5434/gis_longbinh
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5435/gis_ngocto
 
 psql "$DATABASE_URL" -f migrations/001_foundation.sql
 psql "$DATABASE_URL" -f migrations/002_metadata.sql
@@ -24,7 +24,8 @@ psql "$DATABASE_URL" -f migrations/005_governance.sql
 psql "$DATABASE_URL" -f migrations/006_analytics.sql
 psql "$DATABASE_URL" -f migrations/007_triggers.sql
 psql "$DATABASE_URL" -f migrations/010_saved_views.sql
-psql "$DATABASE_URL" -f migrations/008_seed_long_binh.sql   # optional dev seed
+psql "$DATABASE_URL" -f migrations/011_dataset_builder.sql
+psql "$DATABASE_URL" -f migrations/008_seed_ngoc_to.sql   # optional dev seed
 ```
 
 ## Thứ tự file
@@ -38,8 +39,9 @@ psql "$DATABASE_URL" -f migrations/008_seed_long_binh.sql   # optional dev seed
 | 005 | Revisions, field dependencies, permissions |
 | 006 | Datasets, metrics, dashboards |
 | 007 | Validation triggers (geometry, relations, cardinality) |
-| 008 | Seed Long Bình (dev) |
+| 008 | Seed Ngọc Tố (dev) |
 | 010 | Saved Views cho dashboard/query engine |
+| 011 | Dataset Builder runtime config |
 
 ## Nguyên tắc v3.2
 

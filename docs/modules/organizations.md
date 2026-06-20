@@ -20,8 +20,8 @@ Danh sách tổ chức thuộc tenant (UBND phường, …).
   "data": [
     {
       "id": "uuid",
-      "code": "ubnd-long-binh",
-      "name": "UBND Phường Long Bình",
+      "code": "ubnd-ngoc-to",
+      "name": "UBND Xã Ngọc Tố",
       "parentId": null
     }
   ],

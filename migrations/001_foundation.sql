@@ -1,5 +1,5 @@
 -- 001_foundation.sql
--- GIS Long Bình v3.2 — Tenant, organization, auth
+-- GIS Ngọc Tố v3.2 — Tenant, organization, auth
 
 BEGIN;
 

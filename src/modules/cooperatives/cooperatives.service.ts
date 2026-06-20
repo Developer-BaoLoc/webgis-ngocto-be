@@ -9,7 +9,7 @@ export class CooperativesService extends BaseGisLayerService {
     return {
       id: GisLayerType.COOPERATIVE,
       name: LAYER_DISPLAY_NAMES[GisLayerType.COOPERATIVE],
-      description: 'Lớp dữ liệu hợp tác xã trên địa bàn phường Long Bình',
+      description: 'Lớp dữ liệu hợp tác xã trên địa bàn xã Ngọc Tố',
       geometryType: GeometryType.POLYGON,
       status: LayerStatus.PLANNED,
       endpoint: '/api/layers/cooperatives',

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -30,12 +31,18 @@ import {
 } from './import-normalizer';
 import { normalizeProperties } from '../records/field-types/field-type.registry';
 import { DictionaryItemEntity } from '../database/entities/dictionary.entity';
+import {
+  IMPORT_UPLOAD_DIR,
+  resolveImportFilePath,
+  safeDeleteImportFile,
+} from './import-file.util';
 
 export const IMPORT_QUEUE = 'import';
 
 @Injectable()
 export class ImportService {
-  private readonly uploadDir = path.join(process.cwd(), 'uploads', 'imports');
+  private readonly logger = new Logger(ImportService.name);
+  private readonly uploadDir = IMPORT_UPLOAD_DIR;
 
   constructor(
     @InjectRepository(ImportJobEntity)
@@ -64,30 +71,35 @@ export class ImportService {
     const filePath = path.join(this.uploadDir, storageKey);
     fs.writeFileSync(filePath, file.buffer);
 
-    const job = this.jobsRepository.create({
-      tenantId,
-      jobType: 'import',
-      status: 'pending',
-      progress: { processed: 0, total: 0, errors: 0 },
-      payload: { originalName: file.originalname },
-      createdBy: userId,
-    });
-    const savedJob = await this.jobsRepository.save(job);
+    try {
+      const job = this.jobsRepository.create({
+        tenantId,
+        jobType: 'import',
+        status: 'pending',
+        progress: { processed: 0, total: 0, errors: 0 },
+        payload: { originalName: file.originalname },
+        createdBy: userId,
+      });
+      const savedJob = await this.jobsRepository.save(job);
 
-    const importJob = this.importJobsRepository.create({
-      jobExecutionId: savedJob.id,
-      tenantId,
-      fileStorageKey: storageKey,
-      stats: {},
-    });
-    const savedImport = await this.importJobsRepository.save(importJob);
+      const importJob = this.importJobsRepository.create({
+        jobExecutionId: savedJob.id,
+        tenantId,
+        fileStorageKey: storageKey,
+        stats: {},
+      });
+      const savedImport = await this.importJobsRepository.save(importJob);
 
-    return {
-      importId: savedImport.id,
-      jobId: savedJob.id,
-      fileName: file.originalname,
-      status: savedJob.status,
-    };
+      return {
+        importId: savedImport.id,
+        jobId: savedJob.id,
+        fileName: file.originalname,
+        status: savedJob.status,
+      };
+    } catch (error) {
+      this.logRetainedImportFile(filePath, error);
+      throw error;
+    }
   }
 
   async preview(tenantId: string, importId: string, templateCode: string) {
@@ -232,145 +244,172 @@ export class ImportService {
     templateCode: string;
   }) {
     const { tenantId, userId, importId, jobId, templateCode } = payload;
-    const { importJob, template } = await this.loadImportContext(
-      tenantId,
-      importId,
-      templateCode,
-    );
-    const config = template.config as ImportTemplateConfig;
-    const filePath = this.resolveFilePath(importJob.fileStorageKey);
-    const parsed = parseSheetRows(filePath, config);
+    let filePath: string | null = null;
 
-    await this.jobsRepository.update(jobId, {
-      status: 'running',
-      startedAt: new Date(),
-      progress: { processed: 0, total: parsed.rows.length, errors: 0 },
-    });
-
-    let processed = 0;
-    let errors = 0;
-    let created = 0;
-    let duplicates = 0;
-    let currentParentId: string | null = null;
-
-    const layer = await this.layersRepository.findOne({
-      where: {
+    try {
+      const { importJob, template } = await this.loadImportContext(
         tenantId,
-        code:
-          config.mode === 'parent_child'
-            ? config.parentLayer!
-            : config.targetLayer!,
-      },
-    });
-    if (!layer) {
-      throw new NotFoundException('Layer target không tồn tại');
-    }
+        importId,
+        templateCode,
+      );
+      const config = template.config as ImportTemplateConfig;
+      filePath = this.resolveFilePath(importJob.fileStorageKey);
+      const parsed = parseSheetRows(filePath, config);
 
-    const childLayer =
-      config.mode === 'parent_child'
-        ? await this.layersRepository.findOne({
-            where: { tenantId, code: config.childLayer! },
-          })
-        : null;
+      await this.jobsRepository.update(jobId, {
+        status: 'running',
+        startedAt: new Date(),
+        progress: { processed: 0, total: parsed.rows.length, errors: 0 },
+      });
 
-    for (const row of parsed.rows) {
-      processed += 1;
-      try {
-        if (config.mode === 'parent_child' && childLayer) {
-          if (row.isParent && row.parentProperties) {
-            const parentProps = await this.normalizeProperties(
+      let processed = 0;
+      let errors = 0;
+      let created = 0;
+      let duplicates = 0;
+      let currentParentId: string | null = null;
+
+      const layer = await this.layersRepository.findOne({
+        where: {
+          tenantId,
+          code:
+            config.mode === 'parent_child'
+              ? config.parentLayer!
+              : config.targetLayer!,
+        },
+      });
+      if (!layer) {
+        throw new NotFoundException('Layer target không tồn tại');
+      }
+
+      const childLayer =
+        config.mode === 'parent_child'
+          ? await this.layersRepository.findOne({
+              where: { tenantId, code: config.childLayer! },
+            })
+          : null;
+
+      for (const row of parsed.rows) {
+        processed += 1;
+        try {
+          if (config.mode === 'parent_child' && childLayer) {
+            if (row.isParent && row.parentProperties) {
+              const parentProps = await this.normalizeProperties(
+                tenantId,
+                { ...config, targetLayer: config.parentLayer },
+                row.parentProperties,
+              );
+              const dup = await this.findDuplicate(
+                tenantId,
+                layer.id,
+                parentProps,
+                ['ten_chu_the'],
+              );
+              if (dup) {
+                currentParentId = dup;
+                duplicates += 1;
+              } else {
+                const createdParent = await this.recordsService.createRecord(
+                  tenantId,
+                  layer.id,
+                  userId,
+                  { properties: parentProps },
+                );
+                currentParentId = createdParent.id;
+                created += 1;
+              }
+            }
+
+            if (row.childProperties && currentParentId) {
+              const childProps = await this.normalizeProperties(
+                tenantId,
+                { ...config, targetLayer: config.childLayer },
+                row.childProperties,
+              );
+              const childRecord = await this.recordsService.createRecord(
+                tenantId,
+                childLayer.id,
+                userId,
+                { properties: childProps },
+              );
+              await this.linkOcopRelation(
+                tenantId,
+                currentParentId,
+                childRecord.id,
+              );
+              created += 1;
+            }
+          } else {
+            const properties = await this.normalizeProperties(
               tenantId,
-              { ...config, targetLayer: config.parentLayer },
-              row.parentProperties,
+              config,
+              row.properties,
             );
             const dup = await this.findDuplicate(
               tenantId,
               layer.id,
-              parentProps,
-              ['ten_chu_the'],
+              properties,
+              config.dedupKey ?? ['ten_chu_the', 'ten_tram_bom', 'ten_vung'],
             );
             if (dup) {
-              currentParentId = dup;
               duplicates += 1;
             } else {
-              const createdParent = await this.recordsService.createRecord(
+              await this.recordsService.createRecord(
                 tenantId,
                 layer.id,
                 userId,
-                { properties: parentProps },
+                {
+                  properties,
+                },
               );
-              currentParentId = createdParent.id;
               created += 1;
             }
           }
-
-          if (row.childProperties && currentParentId) {
-            const childProps = await this.normalizeProperties(
-              tenantId,
-              { ...config, targetLayer: config.childLayer },
-              row.childProperties,
-            );
-            const childRecord = await this.recordsService.createRecord(
-              tenantId,
-              childLayer.id,
-              userId,
-              { properties: childProps },
-            );
-            await this.linkOcopRelation(
-              tenantId,
-              currentParentId,
-              childRecord.id,
-            );
-            created += 1;
-          }
-        } else {
-          const properties = await this.normalizeProperties(
-            tenantId,
-            config,
-            row.properties,
-          );
-          const dup = await this.findDuplicate(
-            tenantId,
-            layer.id,
-            properties,
-            config.dedupKey ?? ['ten_chu_the', 'ten_tram_bom', 'ten_vung'],
-          );
-          if (dup) {
-            duplicates += 1;
-          } else {
-            await this.recordsService.createRecord(tenantId, layer.id, userId, {
-              properties,
-            });
-            created += 1;
-          }
+        } catch {
+          errors += 1;
         }
-      } catch {
-        errors += 1;
+
+        if (processed % 5 === 0 || processed === parsed.rows.length) {
+          await this.jobsRepository.update(jobId, {
+            progress: { processed, total: parsed.rows.length, errors },
+          });
+        }
       }
 
-      if (processed % 5 === 0 || processed === parsed.rows.length) {
-        await this.jobsRepository.update(jobId, {
-          progress: { processed, total: parsed.rows.length, errors },
-        });
+      const stats = {
+        processed,
+        created,
+        duplicates,
+        errors,
+        total: parsed.rows.length,
+      };
+      await this.importJobsRepository.update(importJob.id, { stats });
+      const finalStatus = errors > 0 && created === 0 ? 'failed' : 'completed';
+      await this.jobsRepository.update(jobId, {
+        status: finalStatus,
+        completedAt: new Date(),
+        progress: { processed, total: parsed.rows.length, errors },
+        result: stats,
+      });
+
+      if (finalStatus === 'completed' && errors === 0) {
+        await safeDeleteImportFile(filePath, this.logger);
+      } else {
+        this.logRetainedImportFile(
+          filePath,
+          new Error(
+            `Job kết thúc với trạng thái ${finalStatus}, số dòng lỗi: ${errors}`,
+          ),
+        );
       }
+
+      return stats;
+    } catch (error) {
+      this.logRetainedImportFile(
+        filePath ?? `importId=${importId} (chưa xác định được đường dẫn file)`,
+        error,
+      );
+      throw error;
     }
-
-    const stats = {
-      processed,
-      created,
-      duplicates,
-      errors,
-      total: parsed.rows.length,
-    };
-    await this.importJobsRepository.update(importJob.id, { stats });
-    await this.jobsRepository.update(jobId, {
-      status: errors > 0 && created === 0 ? 'failed' : 'completed',
-      completedAt: new Date(),
-      progress: { processed, total: parsed.rows.length, errors },
-      result: stats,
-    });
-
-    return stats;
   }
 
   private async loadImportContext(
@@ -406,11 +445,23 @@ export class ImportService {
   }
 
   private resolveFilePath(storageKey: string) {
-    const filePath = path.join(this.uploadDir, storageKey);
+    let filePath: string;
+    try {
+      filePath = resolveImportFilePath(storageKey);
+    } catch {
+      throw new BadRequestException('Đường dẫn file import không hợp lệ');
+    }
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException('File upload không tồn tại');
     }
     return filePath;
+  }
+
+  private logRetainedImportFile(filePath: string, error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.logger.error(
+      `[import] Import lỗi, giữ lại file để debug: ${filePath}. Lỗi: ${detail}`,
+    );
   }
 
   private async normalizeProperties(

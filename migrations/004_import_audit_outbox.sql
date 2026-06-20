@@ -1,5 +1,5 @@
 -- 004_import_audit_outbox.sql
--- GIS Long Bình v3.2 — Import, jobs, audit, outbox
+-- GIS Ngọc Tố v3.2 — Import, jobs, audit, outbox
 
 BEGIN;
 

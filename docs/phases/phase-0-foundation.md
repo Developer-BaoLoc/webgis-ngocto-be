@@ -16,7 +16,7 @@ Chốt kiến trúc, convention, database skeleton, tenant/organization — **ch
 - Migration framework (TypeORM hoặc Prisma — **chốt 1**)
 - Bảng foundation: tenants, organizations, administrative_units, users, roles, permissions
 - Auth JWT cơ bản
-- Tenant Long Bình seed
+- Tenant Ngọc Tố seed
 - Coding convention NestJS theo [architecture-v3.1.md](../architecture-v3.1.md)
 - CI: lint, build, test
 - Cập nhật `.env.example`
@@ -36,7 +36,7 @@ Chốt kiến trúc, convention, database skeleton, tenant/organization — **ch
 | 1 | `docker-compose.yml` | postgis/postgis, redis, minio |
 | 2 | Migration `001_foundation.sql` | Tenant, org, auth tables |
 | 3 | Module skeleton | `tenants/`, `organizations/`, `auth/` |
-| 4 | Seed Long Bình | 1 tenant, org phường, cây admin units |
+| 4 | Seed Ngọc Tố | 1 tenant, org phường, cây admin units |
 | 5 | ADR ORM | TypeORM vs Prisma quyết định |
 | 6 | Deprecate plan | Ghi rõ lộ trình bỏ module prototype |
 
@@ -54,7 +54,7 @@ Chốt kiến trúc, convention, database skeleton, tenant/organization — **ch
 - [ ] Bảng `organizations`, `organization_units`
 - [ ] Bảng `administrative_units` (cây hành chính + khu vực)
 - [ ] Bảng `users`, `roles`, `permissions`, `organization_members`
-- [ ] Seed tenant `long-binh`, phường Long Bình, quận Cái Răng, Cần Thơ
+- [ ] Seed tenant `ngoc-to`, xã Ngọc Tố, quận Mỹ Xuyên, Cần Thơ
 - [ ] Seed admin user mặc định (dev only)
 
 ### Backend
@@ -106,7 +106,7 @@ Từ file Excel, seed các khu vực (level = `zone`):
 - [ ] Migration chạy thành công, PostGIS enabled
 - [ ] `yarn build` + test pass
 - [ ] Login API trả JWT, `/api/auth/me` hoạt động
-- [ ] Tenant Long Bình + khu vực seed trong DB
+- [ ] Tenant Ngọc Tố + khu vực seed trong DB
 - [ ] Tài liệu Phase 1 được review/approve
 
 ## 9. Rủi ro

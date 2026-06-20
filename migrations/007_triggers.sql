@@ -1,5 +1,5 @@
 -- 007_triggers.sql
--- GIS Long Bình v3.2 — Validation triggers
+-- GIS Ngọc Tố v3.2 — Validation triggers
 
 BEGIN;
 

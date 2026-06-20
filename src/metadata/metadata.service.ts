@@ -94,8 +94,8 @@ export class MetadataService {
     const mapView = this.wardBoundaryService.getMapView();
 
     return {
-      name: 'GIS Long Bình',
-      description: 'Hệ thống thông tin địa lý phường Long Bình, Cần Thơ',
+      name: 'GIS Ngọc Tố',
+      description: 'Hệ thống thông tin địa lý xã Ngọc Tố, Cần Thơ',
       ward: ward.name,
       district: ward.district,
       province: ward.province,

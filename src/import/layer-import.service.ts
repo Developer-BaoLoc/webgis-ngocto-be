@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import * as fs from 'fs';
@@ -42,6 +43,11 @@ import {
   ImportColumnAnalysis,
 } from './import-column-discovery';
 import { RelationshipService } from '../metadata/relationship.service';
+import {
+  IMPORT_UPLOAD_DIR,
+  resolveImportFilePath,
+  safeDeleteImportFile,
+} from './import-file.util';
 
 type DictionaryItemsCreated = {
   dictionaryCode: string;
@@ -58,7 +64,8 @@ type ValidatedImportRow = {
 
 @Injectable()
 export class LayerImportService {
-  private readonly uploadDir = path.join(process.cwd(), 'uploads', 'imports');
+  private readonly logger = new Logger(LayerImportService.name);
+  private readonly uploadDir = IMPORT_UPLOAD_DIR;
 
   constructor(
     private readonly metadataService: MetadataService,
@@ -171,7 +178,7 @@ export class LayerImportService {
         };
       }
 
-      fs.unlinkSync(filePath);
+      this.logRetainedImportFile(filePath, error);
       throw new BadRequestException(
         error instanceof Error ? error.message : 'File Excel không hợp lệ',
       );
@@ -267,101 +274,111 @@ export class LayerImportService {
     importId: string,
     dto: ImportNewFieldsDto = {},
   ) {
-    const newFields = dto.newFields ?? [];
-    if (newFields.length > 0) {
-      await this.metadataService.addFieldsToLayerSchema(
-        tenantId,
-        layerId,
-        userId,
-        newFields.map((field) => ({
-          code: field.code,
-          label: field.label,
-          fieldType: field.fieldType,
-          required: field.required,
-          dataSchema: field.dataSchema,
-          uiSchema: field.uiSchema,
-          displaySchema: field.displaySchema,
-        })),
-      );
-    }
+    const filePath = this.resolveFilePath(importId);
 
-    const {
-      validatedRows,
-      summary,
-      schema,
-      dedupKeys,
-      dictionaryItemsCreated,
-    } = await this.validateImportFile(tenantId, layerId, importId, {
-      persistDictionaryItems: true,
-      forceCurrentSchemaMeta: newFields.length > 0,
-      allowSchemaVersionMismatch: newFields.length > 0,
-    });
-
-    if (!summary.canImport) {
-      throw new BadRequestException({
-        code: 'IMPORT_VALIDATION_FAILED',
-        message:
-          'Không thể import vì file còn lỗi. Sửa Excel theo danh sách errors rồi upload lại.',
-        ...summary,
-        errors: summary.errors,
-      });
-    }
-
-    let created = 0;
-    let duplicates = 0;
-    const duplicateRows: LayerImportError[] = [];
-
-    for (const row of validatedRows) {
-      const duplicateId = await this.findDuplicate(
-        tenantId,
-        layerId,
-        row.properties,
-        dedupKeys,
-      );
-      if (duplicateId) {
-        duplicates += 1;
-        const dedupField = dedupKeys[0];
-        const fieldMeta = schema.fields.find((f) => f.code === dedupField);
-        duplicateRows.push({
-          rowNumber: row.rowNumber,
-          field: dedupField ?? '',
-          fieldLabel: fieldMeta?.label ?? dedupField ?? '',
-          rawValue: dedupField
-            ? String(row.rawProperties[dedupField] ?? '')
-            : null,
-          code: IMPORT_ERROR_CODES.DUPLICATE,
-          message: `Dòng ${row.rowNumber}: bản ghi đã tồn tại (trùng ${fieldMeta?.label ?? dedupField}). Bản ghi này đã bỏ qua.`,
-        });
-        continue;
+    try {
+      const newFields = dto.newFields ?? [];
+      if (newFields.length > 0) {
+        await this.metadataService.addFieldsToLayerSchema(
+          tenantId,
+          layerId,
+          userId,
+          newFields.map((field) => ({
+            code: field.code,
+            label: field.label,
+            fieldType: field.fieldType,
+            required: field.required,
+            dataSchema: field.dataSchema,
+            uiSchema: field.uiSchema,
+            displaySchema: field.displaySchema,
+          })),
+        );
       }
 
-      await this.recordsService.createRecordFromImport(
-        tenantId,
-        layerId,
-        userId,
-        { properties: row.properties },
-      );
-      created += 1;
-    }
+      const {
+        validatedRows,
+        summary,
+        schema,
+        dedupKeys,
+        dictionaryItemsCreated,
+      } = await this.validateImportFile(tenantId, layerId, importId, {
+        persistDictionaryItems: true,
+        forceCurrentSchemaMeta: newFields.length > 0,
+        allowSchemaVersionMismatch: newFields.length > 0,
+      });
 
-    return {
-      importId,
-      layerId,
-      processed: validatedRows.length,
-      created,
-      duplicates,
-      total: validatedRows.length,
-      canImport: true,
-      validRows: created,
-      errorRows: 0,
-      errors: [] as LayerImportError[],
-      duplicateRows,
-      dictionaryItemsCreated,
-      message:
-        duplicates > 0
-          ? `Import xong: ${created} bản ghi mới, ${duplicates} dòng trùng đã bỏ qua.${this.formatDictionaryCreatedNote(dictionaryItemsCreated)}`
-          : `Import thành công ${created} bản ghi.${this.formatDictionaryCreatedNote(dictionaryItemsCreated)}`,
-    };
+      if (!summary.canImport) {
+        throw new BadRequestException({
+          code: 'IMPORT_VALIDATION_FAILED',
+          message:
+            'Không thể import vì file còn lỗi. Sửa Excel theo danh sách errors rồi upload lại.',
+          ...summary,
+          errors: summary.errors,
+        });
+      }
+
+      let created = 0;
+      let duplicates = 0;
+      const duplicateRows: LayerImportError[] = [];
+
+      for (const row of validatedRows) {
+        const duplicateId = await this.findDuplicate(
+          tenantId,
+          layerId,
+          row.properties,
+          dedupKeys,
+        );
+        if (duplicateId) {
+          duplicates += 1;
+          const dedupField = dedupKeys[0];
+          const fieldMeta = schema.fields.find((f) => f.code === dedupField);
+          duplicateRows.push({
+            rowNumber: row.rowNumber,
+            field: dedupField ?? '',
+            fieldLabel: fieldMeta?.label ?? dedupField ?? '',
+            rawValue: dedupField
+              ? String(row.rawProperties[dedupField] ?? '')
+              : null,
+            code: IMPORT_ERROR_CODES.DUPLICATE,
+            message: `Dòng ${row.rowNumber}: bản ghi đã tồn tại (trùng ${fieldMeta?.label ?? dedupField}). Bản ghi này đã bỏ qua.`,
+          });
+          continue;
+        }
+
+        await this.recordsService.createRecordFromImport(
+          tenantId,
+          layerId,
+          userId,
+          { properties: row.properties },
+        );
+        created += 1;
+      }
+
+      const result = {
+        importId,
+        layerId,
+        processed: validatedRows.length,
+        created,
+        duplicates,
+        total: validatedRows.length,
+        canImport: true,
+        validRows: created,
+        errorRows: 0,
+        errors: [] as LayerImportError[],
+        duplicateRows,
+        dictionaryItemsCreated,
+        message:
+          duplicates > 0
+            ? `Import xong: ${created} bản ghi mới, ${duplicates} dòng trùng đã bỏ qua.${this.formatDictionaryCreatedNote(dictionaryItemsCreated)}`
+            : `Import thành công ${created} bản ghi.${this.formatDictionaryCreatedNote(dictionaryItemsCreated)}`,
+      };
+
+      await safeDeleteImportFile(filePath, this.logger);
+      return result;
+    } catch (error) {
+      this.logRetainedImportFile(filePath, error);
+      throw error;
+    }
   }
 
   private formatDictionaryCreatedNote(items: DictionaryItemsCreated[]): string {
@@ -661,11 +678,23 @@ export class LayerImportService {
   }
 
   private resolveFilePath(importId: string) {
-    const filePath = path.join(this.uploadDir, importId);
+    let filePath: string;
+    try {
+      filePath = resolveImportFilePath(importId);
+    } catch {
+      throw new BadRequestException('Đường dẫn file import không hợp lệ');
+    }
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException('File import không tồn tại hoặc đã hết hạn');
     }
     return filePath;
+  }
+
+  private logRetainedImportFile(filePath: string, error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.logger.error(
+      `[layer-import] Import lỗi, giữ lại file để debug: ${filePath}. Lỗi: ${detail}`,
+    );
   }
 
   private async loadDictionaryItems(

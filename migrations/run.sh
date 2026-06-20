@@ -11,7 +11,7 @@ if [[ -f "$ROOT_DIR/.env" && -z "${DATABASE_URL:-}" ]]; then
   set +a
 fi
 
-DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}"
+DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5435/gis_ngocto}"
 
 FILES=(
   001_foundation.sql
@@ -22,11 +22,12 @@ FILES=(
   006_analytics.sql
   007_triggers.sql
   010_saved_views.sql
+  011_dataset_builder.sql
 )
 
 RUN_SEED="${RUN_SEED:-false}"
 if [[ "$RUN_SEED" == "true" ]]; then
-  FILES+=(008_seed_long_binh.sql)
+  FILES+=(008_seed_ngoc_to.sql)
 fi
 
 ensure_migrations_table() {

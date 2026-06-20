@@ -6,6 +6,7 @@ import {
 import { DataSource } from 'typeorm';
 import { MetadataService } from '../metadata/metadata.service';
 import { SavedViewsService } from '../saved-views/saved-views.service';
+import { DatasetsService } from '../datasets/datasets.service';
 import {
   AnalyticsFilterDto,
   AnalyticsQueryDto,
@@ -19,6 +20,18 @@ const NUMERIC_FIELD_TYPES = new Set([
   'quantity',
   'number',
   'decimal',
+]);
+const DATASET_NUMERIC_FIELD_TYPES = new Set([
+  'number',
+  'integer',
+  'decimal',
+  'currency',
+]);
+const DATASET_GROUPABLE_FIELD_TYPES = new Set([
+  'text',
+  'date',
+  'boolean',
+  'select',
 ]);
 
 type SchemaField = {
@@ -57,13 +70,15 @@ export type AnalyticsRow = {
 };
 
 export type AnalyticsQueryResult = {
+  datasetId?: string;
   viewId?: string;
-  layerId: string;
+  layerId?: string;
   aggregation: string;
   fieldCode?: string;
   groupByFieldCode?: string;
   value?: number;
   rows?: AnalyticsRow[];
+  records?: Array<Record<string, unknown>>;
 };
 
 @Injectable()
@@ -72,12 +87,24 @@ export class AnalyticsService {
     private readonly dataSource: DataSource,
     private readonly metadataService: MetadataService,
     private readonly savedViewsService: SavedViewsService,
+    private readonly datasetsService: DatasetsService,
   ) {}
 
   async query(
     tenantId: string,
     dto: AnalyticsQueryDto,
   ): Promise<AnalyticsQueryResult> {
+    if (dto.datasetId && (dto.viewId || dto.layerId)) {
+      throw new BadRequestException(
+        'datasetId không được dùng cùng viewId hoặc layerId',
+      );
+    }
+    if (dto.datasetId) {
+      return this.queryDataset(tenantId, dto);
+    }
+    if (dto.aggregation === 'top') {
+      throw new BadRequestException('Top N hiện chỉ hỗ trợ nguồn Dataset');
+    }
     const query = await this.resolveQuery(tenantId, dto);
     await this.metadataService.getLayerById(tenantId, query.layerId);
 
@@ -100,12 +127,12 @@ export class AnalyticsService {
 
     if (query.aggregation !== 'count' && !query.fieldCode) {
       throw new BadRequestException(
-        'metricField (hoặc fieldCode cũ) bắt buộc với sum/avg',
+        'metricField (hoặc fieldCode cũ) bắt buộc với sum/avg/min/max',
       );
     }
 
     if (query.fieldCode) {
-      this.assertKnownField(fieldMap, query.fieldCode, ['sum', 'avg']);
+      this.assertKnownField(fieldMap, query.fieldCode, [query.aggregation]);
     }
 
     if (query.groupByFieldCode) {
@@ -327,13 +354,18 @@ export class AnalyticsService {
     dataSourceConfig: Record<string, unknown> | undefined,
     globalFilters?: AnalyticsFilterDto[],
   ): Promise<AnalyticsQueryResult> {
-    if (!dataSourceConfig?.viewId && !dataSourceConfig?.layerId) {
+    if (
+      !dataSourceConfig?.datasetId &&
+      !dataSourceConfig?.viewId &&
+      !dataSourceConfig?.layerId
+    ) {
       throw new BadRequestException(
         'dataSourceConfig.viewId là bắt buộc (layerId cũ vẫn được hỗ trợ)',
       );
     }
 
     const dto: AnalyticsQueryDto = {
+      datasetId: this.readConfigString(dataSourceConfig.datasetId, 'datasetId'),
       viewId: this.readConfigString(dataSourceConfig.viewId, 'viewId'),
       layerId: this.readConfigString(dataSourceConfig.layerId, 'layerId'),
       aggregation:
@@ -359,9 +391,20 @@ export class AnalyticsService {
         typeof dataSourceConfig.limit === 'number'
           ? dataSourceConfig.limit
           : undefined,
+      displayFields: Array.isArray(dataSourceConfig.displayFields)
+        ? dataSourceConfig.displayFields.filter(
+            (field): field is string => typeof field === 'string',
+          )
+        : undefined,
+      sort:
+        dataSourceConfig.sort && typeof dataSourceConfig.sort === 'object'
+          ? (dataSourceConfig.sort as AnalyticsQueryDto['sort'])
+          : undefined,
     };
 
-    if (!['count', 'sum', 'avg'].includes(dto.aggregation)) {
+    if (
+      !['count', 'sum', 'avg', 'min', 'max', 'top'].includes(dto.aggregation)
+    ) {
       throw new BadRequestException('aggregation không hợp lệ');
     }
 
@@ -410,6 +453,196 @@ export class AnalyticsService {
     };
   }
 
+  private async queryDataset(
+    tenantId: string,
+    dto: AnalyticsQueryDto,
+  ): Promise<AnalyticsQueryResult> {
+    const resolved = await this.datasetsService.resolveDataset(
+      tenantId,
+      dto.datasetId!,
+    );
+    const fieldMap = new Map(
+      resolved.fields.map((field) => [field.key, field]),
+    );
+    const metricField = dto.metricField ?? dto.fieldCode;
+    const dimensionField = dto.dimensionField ?? dto.groupByFieldCode;
+    if (metricField && !fieldMap.has(metricField)) {
+      throw new NotFoundException(
+        `Dataset field không tồn tại: ${metricField}`,
+      );
+    }
+    if (dimensionField && !fieldMap.has(dimensionField)) {
+      throw new NotFoundException(
+        `Dataset field không tồn tại: ${dimensionField}`,
+      );
+    }
+    if (dto.aggregation !== 'count' && !metricField) {
+      throw new BadRequestException('metricField là bắt buộc với Dataset');
+    }
+    if (
+      metricField &&
+      dto.aggregation !== 'count' &&
+      !DATASET_NUMERIC_FIELD_TYPES.has(fieldMap.get(metricField)!.type)
+    ) {
+      throw new BadRequestException(
+        `Dataset field ${metricField} phải là number/integer/decimal/currency`,
+      );
+    }
+    if (
+      dimensionField &&
+      !DATASET_GROUPABLE_FIELD_TYPES.has(fieldMap.get(dimensionField)!.type)
+    ) {
+      throw new BadRequestException(
+        `Dataset field ${dimensionField} không hỗ trợ group by`,
+      );
+    }
+
+    if (dto.aggregation === 'top') {
+      const sortField = dto.sort?.field ?? metricField!;
+      if (!fieldMap.has(sortField)) {
+        throw new NotFoundException(
+          `Dataset field không tồn tại: ${sortField}`,
+        );
+      }
+      const direction = dto.sort?.direction === 'asc' ? 'asc' : 'desc';
+      const displayFields = dto.displayFields?.length
+        ? dto.displayFields
+        : resolved.fields.map((field) => field.key);
+      for (const field of displayFields) {
+        if (!fieldMap.has(field)) {
+          throw new NotFoundException(`Dataset field không tồn tại: ${field}`);
+        }
+      }
+      const records = [...resolved.rows]
+        .sort((a, b) =>
+          this.compareDatasetValues(a[sortField], b[sortField], direction),
+        )
+        .slice(0, dto.limit ?? 10)
+        .map((row) =>
+          Object.fromEntries(displayFields.map((field) => [field, row[field]])),
+        );
+      return {
+        datasetId: dto.datasetId,
+        aggregation: 'top',
+        fieldCode: metricField,
+        records,
+      };
+    }
+
+    if (dimensionField) {
+      const groupSortField = dto.sort?.field;
+      if (
+        groupSortField &&
+        !['value', metricField, dimensionField].includes(groupSortField)
+      ) {
+        throw new BadRequestException(
+          `Dataset sort field không hợp lệ khi group by: ${groupSortField}`,
+        );
+      }
+      const groups = new Map<string, Array<number | null>>();
+      for (const row of resolved.rows) {
+        const label = this.datasetText(row[dimensionField], '(Trống)');
+        const values = groups.get(label) ?? [];
+        values.push(
+          dto.aggregation === 'count'
+            ? 1
+            : this.datasetNumber(row[metricField!]),
+        );
+        groups.set(label, values);
+      }
+      const rows = [...groups.entries()]
+        .map(([label, values]) => ({
+          label,
+          rawLabel: label,
+          value: this.aggregateDatasetValues(values, dto.aggregation),
+        }))
+        .sort((a, b) => {
+          const direction = dto.sort?.direction === 'asc' ? 1 : -1;
+          if (groupSortField === dimensionField) {
+            return direction * a.label.localeCompare(b.label);
+          }
+          return (
+            direction * (a.value - b.value) || a.label.localeCompare(b.label)
+          );
+        })
+        .slice(0, dto.limit ?? 50);
+      return {
+        datasetId: dto.datasetId,
+        aggregation: dto.aggregation,
+        fieldCode: metricField,
+        groupByFieldCode: dimensionField,
+        rows,
+      };
+    }
+
+    const values = resolved.rows.map((row) =>
+      dto.aggregation === 'count' ? 1 : this.datasetNumber(row[metricField!]),
+    );
+    return {
+      datasetId: dto.datasetId,
+      aggregation: dto.aggregation,
+      fieldCode: metricField,
+      value: this.aggregateDatasetValues(values, dto.aggregation),
+    };
+  }
+
+  private aggregateDatasetValues(
+    values: Array<number | null>,
+    aggregation: string,
+  ) {
+    if (aggregation === 'count') return values.length;
+    const valid = values.filter(
+      (value): value is number => value !== null && Number.isFinite(value),
+    );
+    if (valid.length === 0) return 0;
+    if (aggregation === 'sum')
+      return valid.reduce((sum, value) => sum + value, 0);
+    if (aggregation === 'avg') {
+      return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+    }
+    if (aggregation === 'min') return Math.min(...valid);
+    if (aggregation === 'max') return Math.max(...valid);
+    throw new BadRequestException(`aggregation không hợp lệ: ${aggregation}`);
+  }
+
+  private datasetNumber(value: unknown) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private compareDatasetValues(
+    left: unknown,
+    right: unknown,
+    direction: 'asc' | 'desc',
+  ) {
+    const leftMissing = left === null || left === undefined || left === '';
+    const rightMissing = right === null || right === undefined || right === '';
+    if (leftMissing || rightMissing) {
+      if (leftMissing && rightMissing) return 0;
+      return leftMissing ? 1 : -1;
+    }
+    const leftNumber = Number(left);
+    const rightNumber = Number(right);
+    const comparison =
+      Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
+        ? leftNumber - rightNumber
+        : this.datasetText(left, '').localeCompare(this.datasetText(right, ''));
+    return direction === 'asc' ? comparison : -comparison;
+  }
+
+  private datasetText(value: unknown, fallback: string) {
+    if (value === null || value === undefined || value === '') return fallback;
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      return `${value}`;
+    }
+    return JSON.stringify(value);
+  }
+
   private readViewFilters(value: unknown): AnalyticsFilterDto[] {
     if (!Array.isArray(value)) return [];
     return value.map((item: unknown) => {
@@ -456,11 +689,14 @@ export class AnalyticsService {
       throw new NotFoundException(`Field không tồn tại: ${fieldCode}`);
     }
     if (
-      (context.includes('sum') || context.includes('avg')) &&
+      (context.includes('sum') ||
+        context.includes('avg') ||
+        context.includes('min') ||
+        context.includes('max')) &&
       !NUMERIC_FIELD_TYPES.has(field.fieldType)
     ) {
       throw new BadRequestException(
-        `Field ${fieldCode} (${field.fieldType}) không hỗ trợ sum/avg`,
+        `Field ${fieldCode} (${field.fieldType}) không hỗ trợ sum/avg/min/max`,
       );
     }
   }
@@ -536,6 +772,12 @@ export class AnalyticsService {
     }
     if (aggregation === 'avg') {
       return `COALESCE(AVG(${numericExpr}), 0)`;
+    }
+    if (aggregation === 'min') {
+      return `COALESCE(MIN(${numericExpr}), 0)`;
+    }
+    if (aggregation === 'max') {
+      return `COALESCE(MAX(${numericExpr}), 0)`;
     }
     throw new BadRequestException('aggregation không hợp lệ');
   }

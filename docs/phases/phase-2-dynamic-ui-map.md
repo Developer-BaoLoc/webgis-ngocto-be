@@ -6,7 +6,7 @@
 
 ## 1. Mục tiêu
 
-Giao diện admin và bản đồ: nhập liệu động, vẽ polygon/point, xem dữ liệu Long Bình trên map.
+Giao diện admin và bản đồ: nhập liệu động, vẽ polygon/point, xem dữ liệu Ngọc Tố trên map.
 
 ## 2. Phạm vi
 
@@ -50,7 +50,7 @@ unlocated → (user vẽ) → point_placed | polygon_drawn → imported (nếu G
 - MVT tiles (Phase 5)
 - Form conditional visibility phức tạp (Phase 3)
 
-## 4. Use case ưu tiên Long Bình
+## 4. Use case ưu tiên Ngọc Tố
 
 | # | Use case | Layer | Geometry |
 |---|----------|-------|----------|

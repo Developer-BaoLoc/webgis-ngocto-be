@@ -1,5 +1,5 @@
 -- 002_metadata.sql
--- GIS Long Bình v3.2 — Layers, fields, schema versions
+-- GIS Ngọc Tố v3.2 — Layers, fields, schema versions
 
 BEGIN;
 

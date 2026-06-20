@@ -1,4 +1,4 @@
-# GIS Long Bình — Tài liệu dự án
+# GIS Ngọc Tố — Tài liệu dự án
 
 > **Đối tượng đọc:** Frontend, backend, QA — tài liệu gốc để hiểu dự án trước khi đọc chi tiết từng module.
 
@@ -6,7 +6,7 @@
 
 ## 1. Dự án là gì?
 
-**GIS Long Bình** là hệ thống thông tin địa lý (GIS) phục vụ **UBND phường Long Bình, quận Cái Răng, TP. Cần Thơ** — tập trung vào **quản lý dữ liệu nông nghiệp và kinh tế tập thể** trên địa bàn phường.
+**GIS Ngọc Tố** là hệ thống thông tin địa lý (GIS) phục vụ **UBND xã Ngọc Tố, quận Mỹ Xuyên, TP. Cần Thơ** — tập trung vào **quản lý dữ liệu nông nghiệp và kinh tế tập thể** trên địa bàn phường.
 
 Phường cần một nền tảng để:
 
@@ -31,7 +31,7 @@ Phường cần một nền tảng để:
 | **Nhập liệu (data editor)** | CRUD bản ghi, ghim/vẽ trên bản đồ |
 | **Viewer** | Xem bản đồ + bảng read-only, không sửa |
 
-Dev seed: `admin@longbinh.local` / `Admin@123` (sau Phase 0 auth).
+Dev seed: `admin@ngocto.local` / `Admin@123` (sau Phase 0 auth).
 
 ---
 
@@ -61,7 +61,7 @@ Dev seed: `admin@longbinh.local` / `Admin@123` (sau Phase 0 auth).
 | **Import wizard** | Upload Excel → preview → execute | 2 |
 | **Dashboard** | Widget builder (semantic layer) | 4 |
 
-### 3.2. Luồng người dùng chính (Long Bình)
+### 3.2. Luồng người dùng chính (Ngọc Tố)
 
 ```
 ① Import Excel (HTX, THHT, trạm bơm, OCOP…)
@@ -132,7 +132,7 @@ GET /api/layers/:layerId/geojson?bbox=minLng,minLat,maxLng,maxLat
 
 ### 4.5. Khu vực hành chính
 
-Phường Long Bình có **10 khu vực** (Bình Lợi, Bình Trung, Bình Hiếu…). Dùng làm filter trên bảng và bản đồ. Dictionary `khu_vuc` đã seed trong DB.
+Xã Ngọc Tố có **10 khu vực** (Bình Lợi, Bình Trung, Bình Hiếu…). Dùng làm filter trên bảng và bản đồ. Dictionary `khu_vuc` đã seed trong DB.
 
 ---
 
@@ -151,7 +151,7 @@ File Excel tại root repo: `BẢNG TỔNG HỢP SỐ LIỆU NÔNG NGHIỆP...xl
 
 **Chưa có tọa độ / polygon trong Excel** — bổ sung trên bản đồ ở Phase 2.
 
-Spec import chi tiết: [import-excel-long-binh.md](./appendix/import-excel-long-binh.md)
+Spec import chi tiết: [import-excel-ngoc-to.md](./appendix/import-excel-ngoc-to.md)
 
 ---
 
@@ -191,7 +191,7 @@ Endpoint Phase 0 mới dùng `{ data, meta }`. Prototype `/api/layers` vẫn raw
 3. appendix/           ← khi cần chi tiết sâu
    ├── api-conventions.md    → contract API đầy đủ (target)
    ├── field-types.md        → render form động
-   └── import-excel-long-binh.md
+   └── import-excel-ngoc-to.md
 ```
 
 **Gửi cho frontend team:** `docs/PROJECT.md` + toàn bộ `docs/modules/`. Khi Phase 1 xong, thêm `docs/appendix/api-conventions.md`.
@@ -287,7 +287,7 @@ Chi tiết 6 tầng: [architecture-v3.1.md](./architecture-v3.1.md)
 ```bash
 curl -s http://localhost:4000/api | jq
 curl -s http://localhost:4000/api/layers | jq
-docker ps | grep gis_longbinh
+docker ps | grep gis_ngocto
 yarn test:e2e
 ```
 
@@ -319,7 +319,7 @@ yarn test:e2e
 | [architecture-v3.1.md](./architecture-v3.1.md) | Quyết định kiến trúc backend |
 | [appendix/api-conventions.md](./appendix/api-conventions.md) | Contract API đầy đủ theo phase |
 | [appendix/field-types.md](./appendix/field-types.md) | Implement dynamic form |
-| [appendix/import-excel-long-binh.md](./appendix/import-excel-long-binh.md) | Import wizard mapping |
+| [appendix/import-excel-ngoc-to.md](./appendix/import-excel-ngoc-to.md) | Import wizard mapping |
 
 ---
 

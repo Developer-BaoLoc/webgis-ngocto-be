@@ -8,7 +8,7 @@
 
 ## Mục đích
 
-Lớp tổ hợp tác trên địa bàn phường Long Bình.
+Lớp tổ hợp tác trên địa bàn xã Ngọc Tố.
 
 ## API
 
@@ -29,7 +29,7 @@ Lớp tổ hợp tác trên địa bàn phường Long Bình.
 {
   "id": "cooperative-groups",
   "name": "Tổ hợp tác",
-  "description": "Lớp dữ liệu tổ hợp tác trên địa bàn phường Long Bình",
+  "description": "Lớp dữ liệu tổ hợp tác trên địa bàn xã Ngọc Tố",
   "geometryType": "Polygon",
   "status": "planned",
   "endpoint": "/api/layers/cooperative-groups"

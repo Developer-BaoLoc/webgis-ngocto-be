@@ -19,7 +19,7 @@ async function bootstrap() {
   );
 
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('GIS Long Bình API')
+    .setTitle('GIS Ngọc Tố API')
     .setDescription('Metadata-driven WebGIS API')
     .setVersion('1.0')
     .addBearerAuth()

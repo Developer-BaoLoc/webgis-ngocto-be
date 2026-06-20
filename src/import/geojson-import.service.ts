@@ -1,10 +1,11 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
-import { createReadStream, existsSync, mkdirSync, unlinkSync } from 'fs';
+import { createReadStream, existsSync, mkdirSync } from 'fs';
 import * as path from 'path';
 import { chain } from 'stream-chain';
 import { randomUUID } from 'crypto';
@@ -30,6 +31,11 @@ import {
   isPolygonFieldType,
   normalizePolygonGeometryValue,
 } from '../records/utils/area-polygon-geometry.util';
+import {
+  IMPORT_UPLOAD_DIR,
+  resolveImportFilePath,
+  safeDeleteImportFile,
+} from './import-file.util';
 
 const { pick } = require('stream-json/filters/pick.js') as {
   pick: (options: { filter: string }) => NodeJS.ReadWriteStream;
@@ -128,7 +134,8 @@ export type GeoJsonImportSummary = {
 
 @Injectable()
 export class GeoJsonImportService {
-  private readonly uploadDir = path.join(process.cwd(), 'uploads', 'imports');
+  private readonly logger = new Logger(GeoJsonImportService.name);
+  private readonly uploadDir = IMPORT_UPLOAD_DIR;
 
   constructor(
     private readonly metadataService: MetadataService,
@@ -140,38 +147,35 @@ export class GeoJsonImportService {
   }
 
   async upload(tenantId: string, layerId: string, file: Express.Multer.File) {
-    await this.metadataService.getLayerById(tenantId, layerId);
-    const schema = await this.metadataService.getPublishedSchema(
-      tenantId,
-      layerId,
-    );
-
     if (!file) {
       throw new BadRequestException('Thiếu file GeoJSON');
     }
 
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (!['.geojson', '.json'].includes(ext)) {
-      this.unlinkUploadedFile(file);
-      throw new BadRequestException('Chỉ hỗ trợ file .geojson hoặc .json');
-    }
-
     try {
-      await this.assertFeatureCollection(file.path);
-    } catch (error) {
-      this.unlinkUploadedFile(file);
-      throw new BadRequestException(
-        error instanceof Error ? error.message : 'GeoJSON không hợp lệ',
+      await this.metadataService.getLayerById(tenantId, layerId);
+      const schema = await this.metadataService.getPublishedSchema(
+        tenantId,
+        layerId,
       );
-    }
 
-    return {
-      importId: path.basename(file.path),
-      fileName: file.originalname,
-      layerId,
-      status: 'uploaded',
-      ...(await this.analyzeGeoJsonColumns(file.path, schema)),
-    };
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (!['.geojson', '.json'].includes(ext)) {
+        throw new BadRequestException('Chỉ hỗ trợ file .geojson hoặc .json');
+      }
+
+      await this.assertFeatureCollection(file.path);
+
+      return {
+        importId: path.basename(file.path),
+        fileName: file.originalname,
+        layerId,
+        status: 'uploaded',
+        ...(await this.analyzeGeoJsonColumns(file.path, schema)),
+      };
+    } catch (error) {
+      this.logRetainedImportFile(file.path, error);
+      throw error;
+    }
   }
 
   async preview(
@@ -199,40 +203,47 @@ export class GeoJsonImportService {
     userId: string,
     dto: GeoJsonImportOptionsDto,
   ): Promise<GeoJsonImportSummary> {
-    const newFields = dto.newFields ?? [];
-    if (newFields.length > 0) {
-      await this.metadataService.addFieldsToLayerSchema(
-        tenantId,
-        layerId,
-        userId,
-        newFields.map((field) => ({
-          code: field.code,
-          label: field.label,
-          fieldType: field.fieldType,
-          required: field.required,
-          dataSchema: field.dataSchema,
-          uiSchema: field.uiSchema,
-          displaySchema: field.displaySchema,
-        })),
+    const filePath = this.resolveFilePath(dto.importId);
+
+    try {
+      const newFields = dto.newFields ?? [];
+      if (newFields.length > 0) {
+        await this.metadataService.addFieldsToLayerSchema(
+          tenantId,
+          layerId,
+          userId,
+          newFields.map((field) => ({
+            code: field.code,
+            label: field.label,
+            fieldType: field.fieldType,
+            required: field.required,
+            dataSchema: field.dataSchema,
+            uiSchema: field.uiSchema,
+            displaySchema: field.displaySchema,
+          })),
+        );
+      }
+
+      const context = await this.buildContext(tenantId, layerId, userId, dto);
+
+      const summary = await this.dataSource.transaction(async (manager) =>
+        this.processFile(context, {
+          sampleSize: 20,
+          insert: true,
+          manager,
+        }),
       );
+      const result = {
+        ...summary,
+        ...(await this.analyzeGeoJsonColumns(filePath, context.schema)),
+      };
+
+      await safeDeleteImportFile(filePath, this.logger);
+      return result;
+    } catch (error) {
+      this.logRetainedImportFile(filePath, error);
+      throw error;
     }
-
-    const context = await this.buildContext(tenantId, layerId, userId, dto);
-
-    const summary = await this.dataSource.transaction(async (manager) =>
-      this.processFile(context, {
-        sampleSize: 20,
-        insert: true,
-        manager,
-      }),
-    );
-    return {
-      ...summary,
-      ...(await this.analyzeGeoJsonColumns(
-        this.resolveFilePath(dto.importId),
-        context.schema,
-      )),
-    };
   }
 
   private async buildContext(
@@ -534,7 +545,8 @@ export class GeoJsonImportService {
     const candidates = [
       field.code,
       field.label,
-      ...(isLineFieldType(field.fieldType) || isPolygonFieldType(field.fieldType)
+      ...(isLineFieldType(field.fieldType) ||
+      isPolygonFieldType(field.fieldType)
         ? ['geometry', '__geometry__']
         : []),
       ...this.osmAliasesForField(field.code),
@@ -735,17 +747,23 @@ export class GeoJsonImportService {
   }
 
   private resolveFilePath(importId: string) {
-    const filePath = path.join(this.uploadDir, path.basename(importId));
+    let filePath: string;
+    try {
+      filePath = resolveImportFilePath(importId);
+    } catch {
+      throw new BadRequestException('Đường dẫn file GeoJSON không hợp lệ');
+    }
     if (!existsSync(filePath)) {
       throw new NotFoundException('File GeoJSON không tồn tại hoặc đã hết hạn');
     }
     return filePath;
   }
 
-  private unlinkUploadedFile(file: Express.Multer.File) {
-    if (file.path && existsSync(file.path)) {
-      unlinkSync(file.path);
-    }
+  private logRetainedImportFile(filePath: string, error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.logger.error(
+      `[geojson-import] Import lỗi, giữ lại file để debug: ${filePath}. Lỗi: ${detail}`,
+    );
   }
 
   private async assertFeatureCollection(filePath: string) {

@@ -1,5 +1,5 @@
 {
-  "name": "gis_longbinh",
+  "name": "gis_ngocto",
   "version": "0.0.1",
   "description": "",
   "author": "",
@@ -21,10 +21,11 @@
     "db:up": "docker compose up -d postgres redis minio",
     "db:migrate": "./migrations/run.sh",
     "db:seed": "./migrations/seed.sh",
-    "db:clear-records": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-imported-data.sql",
-    "db:clear-layers": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-seeded-layers.sql",
-    "db:clear-dictionaries": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5434/gis_longbinh}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-seed-dictionaries.sql",
-    "db:reset": "docker compose down -v && docker compose up -d postgres redis minio && sleep 8 && ./migrations/run.sh"
+    "db:clear-records": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5435/gis_ngocto}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-imported-data.sql",
+    "db:clear-layers": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5435/gis_ngocto}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-seeded-layers.sql",
+    "db:clear-dictionaries": "psql \"${DATABASE_URL:-postgresql://postgres:postgres@localhost:5435/gis_ngocto}\" -v ON_ERROR_STOP=1 -f ./scripts/clear-seed-dictionaries.sql",
+    "db:reset": "docker compose down -v && docker compose up -d postgres redis minio && sleep 8 && ./migrations/run.sh",
+    "cleanup:imports": "ts-node scripts/cleanup-imports.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^11.0.4",

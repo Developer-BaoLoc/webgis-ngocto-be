@@ -14,6 +14,7 @@ import { GisModule } from './gis/gis.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { SavedViewsModule } from './saved-views/saved-views.module';
+import { DatasetsModule } from './datasets/datasets.module';
 import { WardBoundaryModule } from './ward-boundary/ward-boundary.module';
 import { MapModule } from './map/map.module';
 import { HealthModule } from './health/health.module';
@@ -38,6 +39,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
     GisModule,
     DashboardsModule,
     SavedViewsModule,
+    DatasetsModule,
     AnalyticsModule,
   ],
   providers: [

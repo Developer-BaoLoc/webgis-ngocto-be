@@ -29,7 +29,7 @@ Công trình thủy lợi: kênh, mương, cống, trạm bơm.
 {
   "id": "irrigation",
   "name": "Thủy lợi",
-  "description": "Lớp dữ liệu công trình thủy lợi: kênh, mương, cống, trạm bơm trên địa bàn phường Long Bình",
+  "description": "Lớp dữ liệu công trình thủy lợi: kênh, mương, cống, trạm bơm trên địa bàn xã Ngọc Tố",
   "geometryType": "LineString",
   "status": "planned",
   "endpoint": "/api/layers/irrigation"

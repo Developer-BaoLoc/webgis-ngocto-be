@@ -34,7 +34,7 @@ describe('App (e2e)', () => {
       .expect(200)
       .expect((res) => {
         expect(res.body.data.status).toBe('ok');
-        expect(res.body.data.service).toBe('GIS Long Bình API');
+        expect(res.body.data.service).toBe('GIS Ngọc Tố API');
         expect(res.body.meta).toBeDefined();
       });
   });
@@ -54,7 +54,7 @@ describe('App (e2e)', () => {
       .get('/api/layers')
       .expect(200)
       .expect((res) => {
-        expect(res.body.data.project.name).toBe('GIS Long Bình');
+        expect(res.body.data.project.name).toBe('GIS Ngọc Tố');
         expect(res.body.data.project.mapView).toBeDefined();
         expect(res.body.data.project.mapView.bounds).toHaveLength(4);
         expect(Array.isArray(res.body.data.layers)).toBe(true);
@@ -83,7 +83,7 @@ describe('App (e2e)', () => {
     it('POST /api/auth/login + GET /api/auth/me', async () => {
       const loginRes = await request(app.getHttpServer())
         .post('/api/auth/login')
-        .send({ email: 'admin@longbinh.local', password: 'Admin@123' });
+        .send({ email: 'admin@ngocto.local', password: 'Admin@123' });
 
       if (loginRes.status === 401 && loginRes.body.message?.includes('Email')) {
         // DB not seeded or unavailable — skip assertion
@@ -100,7 +100,7 @@ describe('App (e2e)', () => {
         .set('Authorization', `Bearer ${token}`)
         .expect(200);
 
-      expect(meRes.body.data.email).toBe('admin@longbinh.local');
+      expect(meRes.body.data.email).toBe('admin@ngocto.local');
       expect(meRes.body.data.roles).toContain('super_admin');
     });
   });

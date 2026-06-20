@@ -106,7 +106,7 @@ Response `/display`:
 ```json
 {
   "properties": { "ten_chu_the": "HTX NN Bình Lợi", "loai_chu_the": "hop_tac_xa" },
-  "geometry": { "type": "Point", "coordinates": [105.785, 10.0125] }
+  "geometry": { "type": "Point", "coordinates": [105.9342, 9.4466] }
 }
 ```
 

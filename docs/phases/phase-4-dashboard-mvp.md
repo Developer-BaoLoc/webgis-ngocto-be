@@ -84,7 +84,7 @@ User chọn filter → dashboard context → mọi widget cập nhật.
 - Preview draft
 - Publish revision
 
-## 3. Dataset seed Long Bình
+## 3. Dataset seed Ngọc Tố
 
 | Dataset | Source | Grain | Default filter |
 |---------|--------|-------|----------------|
@@ -115,7 +115,7 @@ User chọn filter → dashboard context → mọi widget cập nhật.
 | by_loai_bom | Loại bơm | loai_bom |
 | by_year | Theo năm | reporting_year |
 
-## 4. Dashboard mẫu — Tổng quan Long Bình
+## 4. Dashboard mẫu — Tổng quan Ngọc Tố
 
 Layout đề xuất (desktop):
 
@@ -152,7 +152,7 @@ Layout đề xuất (desktop):
 - [ ] Widget renderers: stat, bar, pie, table, map
 - [ ] Global filter component + context
 - [ ] Draft / preview / publish flow
-- [ ] Seed dashboard "Tổng quan Long Bình"
+- [ ] Seed dashboard "Tổng quan Ngọc Tố"
 - [ ] Permission: dashboard private / org / public
 
 ## 7. Definition of Done
@@ -160,7 +160,7 @@ Layout đề xuất (desktop):
 - [ ] Admin tạo dashboard mới kéo thả widget
 - [ ] Widget bind metric/dimension by ID
 - [ ] Global filter khu vực cập nhật chart + map + table
-- [ ] Dashboard mẫu Long Bình publish được
+- [ ] Dashboard mẫu Ngọc Tố publish được
 - [ ] Analytics query < 5s với dữ liệu hiện tại
 - [ ] query_executions ghi duration + rows
 - [ ] Đổi label field không hỏng widget (bind field_id)

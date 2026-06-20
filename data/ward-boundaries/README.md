@@ -15,12 +15,12 @@ data/ward-boundaries/
 Một file → nhiều phường. Chỉ đổi biến môi trường, không cần copy GeoJSON riêng:
 
 ```env
-WARD_NAME=Long Bình
-WARD_CODE=long-binh
+WARD_NAME=Ngọc Tố
+WARD_CODE=ngoc-to
 WARD_BOUNDARY_DATASET=can-tho.geojson
 WARD_BOUNDARY_MATCH_PROPERTY=ten_xa
-WARD_BOUNDARY_MATCH_VALUE=Long Bình
-WARD_BOUNDARY_ADMIN_CODE=31473
+WARD_BOUNDARY_MATCH_VALUE=Ngọc Tố
+WARD_BOUNDARY_ADMIN_CODE=31723
 ```
 
 | Biến | Mô tả |

@@ -182,7 +182,7 @@ Value trong `properties`:
 
 ```json
 {
-  "vi_tri": { "lat": 10.0125, "lng": 105.785 }
+  "vi_tri": { "lat": 9.4466, "lng": 105.9342 }
 }
 ```
 
@@ -213,7 +213,7 @@ Value trong `properties`:
 {
   "ranh_vung": {
     "coordinates": [
-      { "lat": 10.0125, "lng": 105.785 },
+      { "lat": 9.4466, "lng": 105.9342 },
       { "lat": 10.0130, "lng": 105.790 },
       { "lat": 10.0110, "lng": 105.792 }
     ]
@@ -329,4 +329,4 @@ Catalog: `GET /api/metadata/field-display-options`
 ## Tham chiếu
 
 - [data-model.md](../data-model.md)
-- [import-excel-long-binh.md](./import-excel-long-binh.md)
+- [import-excel-ngoc-to.md](./import-excel-ngoc-to.md)

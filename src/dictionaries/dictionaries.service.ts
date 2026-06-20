@@ -13,6 +13,11 @@ import {
 import { slugifyLayerCode } from '../metadata/utils/layer-code.util';
 import { findMissingCategoryLabels } from '../import/import-normalizer';
 import {
+  cleanDictionaryText,
+  normalizeDictionaryCode,
+  normalizeDictionaryName,
+} from '../common/utils/dictionary-normalization.util';
+import {
   CreateDictionaryDto,
   CreateDictionaryItemDto,
   UpdateDictionaryDto,
@@ -141,7 +146,31 @@ export class DictionariesService {
   }
 
   async createDictionary(tenantId: string, dto: CreateDictionaryDto) {
-    const baseCode = slugifyLayerCode(dto.name);
+    const name = cleanDictionaryText(dto.name);
+    const initialLabels = new Set<string>();
+    for (const value of dto.values ?? []) {
+      const normalizedLabel = normalizeDictionaryName(value.label);
+      if (initialLabels.has(normalizedLabel)) {
+        throw new ConflictException(
+          'Giá trị danh mục đã tồn tại trong nhóm này',
+        );
+      }
+      initialLabels.add(normalizedLabel);
+    }
+    const dictionaries = await this.dictionariesRepository.find({
+      where: { tenantId },
+    });
+    if (
+      dictionaries.some(
+        (dictionary) =>
+          normalizeDictionaryName(dictionary.name) ===
+          normalizeDictionaryName(name),
+      )
+    ) {
+      throw new ConflictException('Danh mục đã tồn tại');
+    }
+
+    const baseCode = slugifyLayerCode(name);
     let code = baseCode;
     let suffix = 2;
 
@@ -162,7 +191,7 @@ export class DictionariesService {
       this.dictionariesRepository.create({
         tenantId,
         code,
-        name: dto.name,
+        name,
         description: dto.description ?? null,
         isHierarchical: dto.isHierarchical ?? false,
       }),
@@ -199,7 +228,23 @@ export class DictionariesService {
     const dictionary = await this.findDictionaryOrThrow(tenantId, code);
     this.assertDictionaryWritable(dictionary, tenantId);
 
-    if (dto.name !== undefined) dictionary.name = dto.name;
+    if (dto.name !== undefined) {
+      const name = cleanDictionaryText(dto.name);
+      const dictionaries = await this.dictionariesRepository.find({
+        where: { tenantId },
+      });
+      if (
+        dictionaries.some(
+          (candidate) =>
+            candidate.id !== dictionary.id &&
+            normalizeDictionaryName(candidate.name) ===
+              normalizeDictionaryName(name),
+        )
+      ) {
+        throw new ConflictException('Danh mục đã tồn tại');
+      }
+      dictionary.name = name;
+    }
     if (dto.description !== undefined) {
       dictionary.description = dto.description ?? null;
     }
@@ -283,7 +328,25 @@ export class DictionariesService {
       throw new NotFoundException('Mục danh mục không tồn tại');
     }
 
-    if (dto.label !== undefined) item.label = dto.label;
+    if (dto.label !== undefined) {
+      const label = cleanDictionaryText(dto.label);
+      const siblings = await this.itemsRepository.find({
+        where: { dictionaryId: dictionary.id },
+      });
+      if (
+        siblings.some(
+          (candidate) =>
+            candidate.id !== item.id &&
+            normalizeDictionaryName(candidate.label) ===
+              normalizeDictionaryName(label),
+        )
+      ) {
+        throw new ConflictException(
+          'Giá trị danh mục đã tồn tại trong nhóm này',
+        );
+      }
+      item.label = label;
+    }
     if (dto.sortOrder !== undefined) item.sortOrder = dto.sortOrder;
     if (dto.isActive !== undefined) item.isActive = dto.isActive;
 
@@ -342,18 +405,37 @@ export class DictionariesService {
     this.assertDictionaryWritable(dictionary, tenantId);
 
     const existing = await this.itemsRepository.find({
-      where: { dictionaryId: dictionary.id, isActive: true },
+      where: { dictionaryId: dictionary.id },
     });
 
+    const requestedLabels = new Set(labels.map(normalizeDictionaryName));
+    const reactivated = existing.filter(
+      (item) =>
+        !item.isActive &&
+        requestedLabels.has(normalizeDictionaryName(item.label)),
+    );
+    if (reactivated.length) {
+      for (const item of reactivated) item.isActive = true;
+      await this.itemsRepository.save(reactivated);
+    }
+
     const toCreate = findMissingCategoryLabels(labels, existing);
-    if (toCreate.length === 0) return [];
+    if (toCreate.length === 0) {
+      return reactivated.map((item) => ({
+        code: item.code,
+        label: item.label,
+      }));
+    }
 
     const created = await this.createValuesInternal(
       dictionary,
       toCreate.map((label) => ({ label })),
     );
 
-    return created.map((item) => ({ code: item.code, label: item.label }));
+    return [...reactivated, ...created].map((item) => ({
+      code: item.code,
+      label: item.label,
+    }));
   }
 
   private toValueSummary(item: DictionaryItemEntity): DictionaryValueSummary {
@@ -377,6 +459,40 @@ export class DictionariesService {
       parentId?: string | null;
     }>,
   ) {
+    const existingItems = await this.itemsRepository.find({
+      where: { dictionaryId: dictionary.id },
+    });
+    const existingLabels = new Set(
+      existingItems.map((item) => normalizeDictionaryName(item.label)),
+    );
+    const existingCodes = new Set(
+      existingItems.map((item) => normalizeDictionaryCode(item.code)),
+    );
+    const incomingLabels = new Set<string>();
+    const incomingCodes = new Set<string>();
+    const normalizedValues = values.map((value) => {
+      const label = cleanDictionaryText(value.label);
+      const labelKey = normalizeDictionaryName(label);
+      if (existingLabels.has(labelKey) || incomingLabels.has(labelKey)) {
+        throw new ConflictException(
+          'Giá trị danh mục đã tồn tại trong nhóm này',
+        );
+      }
+      incomingLabels.add(labelKey);
+
+      const preferred = value.code?.trim()
+        ? slugifyLayerCode(value.code)
+        : undefined;
+      if (preferred) {
+        const codeKey = normalizeDictionaryCode(preferred);
+        if (existingCodes.has(codeKey) || incomingCodes.has(codeKey)) {
+          throw new ConflictException('Giá trị danh mục đã tồn tại');
+        }
+        incomingCodes.add(codeKey);
+      }
+      return { ...value, label, code: preferred };
+    });
+
     const maxOrderRow = await this.itemsRepository
       .createQueryBuilder('i')
       .select('COALESCE(MAX(i.sort_order), 0)', 'max')
@@ -386,18 +502,10 @@ export class DictionariesService {
     let nextOrder = parseInt(maxOrderRow?.max ?? '0', 10);
     const created: Array<ReturnType<typeof this.toValueSummary>> = [];
 
-    for (const value of values) {
+    for (const value of normalizedValues) {
       let code: string;
-      const preferred = value.code?.trim();
+      const preferred = value.code;
       if (preferred) {
-        const dup = await this.itemsRepository.findOne({
-          where: { dictionaryId: dictionary.id, code: preferred },
-        });
-        if (dup) {
-          throw new ConflictException(
-            `Mã giá trị đã tồn tại trong danh mục: ${preferred}`,
-          );
-        }
         code = preferred;
       } else {
         code = await this.resolveUniqueItemCode(dictionary.id, value.label);

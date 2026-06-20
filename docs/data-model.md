@@ -41,8 +41,8 @@ Database chính: **PostgreSQL 15+ + PostGIS 3+**
 | Cột | Kiểu | Mô tả |
 |-----|------|--------|
 | id | uuid PK | |
-| code | varchar unique | `long-binh` |
-| name | varchar | Phường Long Bình |
+| code | varchar unique | `ngoc-to` |
+| name | varchar | Xã Ngọc Tố |
 | is_active | boolean | |
 | created_at | timestamptz | |
 
@@ -198,7 +198,7 @@ CREATE INDEX idx_features_layer_created ON features (layer_id, created_at DESC);
 | sort_order, is_active | |
 | metadata | jsonb |
 
-**Seed Long Bình:** `khu_vuc`, `nganh_nghe`, `tinh_trang_hoat_dong`, `xep_hang_ocop`, `loai_bom`, `loai_chu_the`
+**Seed Ngọc Tố:** `khu_vuc`, `nganh_nghe`, `tinh_trang_hoat_dong`, `xep_hang_ocop`, `loai_bom`, `loai_chu_the`
 
 ## 6. Child datasets (Phase 3)
 
@@ -249,7 +249,7 @@ Bind `field_id` (fields.id), không bind code.
 
 Layout theo breakpoint: desktop, tablet, mobile.
 
-## 9. Layer seed Long Bình
+## 9. Layer seed Ngọc Tố
 
 | code | name | geometry_type | geometry_required |
 |------|------|---------------|-------------------|
@@ -282,4 +282,4 @@ production_zone (Polygon)
 ## 11. Tham chiếu
 
 - [field-types.md](./appendix/field-types.md)
-- [import-excel-long-binh.md](./appendix/import-excel-long-binh.md)
+- [import-excel-ngoc-to.md](./appendix/import-excel-ngoc-to.md)

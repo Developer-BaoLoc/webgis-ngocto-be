@@ -21,9 +21,9 @@ Lớp ranh giới phường — đọc từ `data/ward-boundaries/` theo cấu h
   "bounds": [105.5542, 9.6800, 105.6189, 9.7767],
   "boundaryEndpoint": "/api/layers/administrative-boundary",
   "ward": {
-    "name": "Long Bình",
-    "code": "long-binh",
-    "district": "Cái Răng",
+    "name": "Ngọc Tố",
+    "code": "ngoc-to",
+    "district": "Mỹ Xuyên",
     "province": "Cần Thơ"
   }
 }

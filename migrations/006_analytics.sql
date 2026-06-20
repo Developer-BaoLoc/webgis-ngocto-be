@@ -1,5 +1,5 @@
 -- 006_analytics.sql
--- GIS Long Bình v3.2 — Datasets, metrics, dashboards
+-- GIS Ngọc Tố v3.2 — Datasets, metrics, dashboards
 
 BEGIN;
 

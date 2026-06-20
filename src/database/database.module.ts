@@ -35,6 +35,7 @@ import {
   DashboardWidgetEntity,
 } from './entities/analytics.entity';
 import { SavedViewEntity } from './entities/saved-view.entity';
+import { DatasetEntity } from './entities/dataset.entity';
 
 const entities = [
   TenantEntity,
@@ -60,6 +61,7 @@ const entities = [
   DashboardRevisionEntity,
   DashboardWidgetEntity,
   SavedViewEntity,
+  DatasetEntity,
 ];
 
 @Module({

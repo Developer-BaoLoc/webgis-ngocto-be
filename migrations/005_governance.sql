@@ -1,5 +1,5 @@
 -- 005_governance.sql
--- GIS Long Bình v3.2 — Revisions, dependencies, permissions
+-- GIS Ngọc Tố v3.2 — Revisions, dependencies, permissions
 
 BEGIN;
 

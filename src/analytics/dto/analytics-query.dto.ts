@@ -36,7 +36,19 @@ export class AnalyticsFilterDto {
   value: unknown;
 }
 
+export class AnalyticsSortDto {
+  @IsString()
+  field: string;
+
+  @IsIn(['asc', 'desc'])
+  direction: 'asc' | 'desc';
+}
+
 export class AnalyticsQueryDto {
+  @IsOptional()
+  @IsUUID()
+  datasetId?: string;
+
   @IsOptional()
   @IsUUID()
   layerId?: string;
@@ -45,8 +57,8 @@ export class AnalyticsQueryDto {
   @IsUUID()
   viewId?: string;
 
-  @IsIn(['count', 'sum', 'avg'])
-  aggregation: 'count' | 'sum' | 'avg';
+  @IsIn(['count', 'sum', 'avg', 'min', 'max', 'top'])
+  aggregation: 'count' | 'sum' | 'avg' | 'min' | 'max' | 'top';
 
   @IsOptional()
   @IsString()
@@ -63,6 +75,17 @@ export class AnalyticsQueryDto {
   @IsOptional()
   @IsString()
   dimensionField?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  displayFields?: string[];
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => AnalyticsSortDto)
+  sort?: AnalyticsSortDto;
 
   @IsOptional()
   @IsArray()

@@ -65,7 +65,7 @@ Sau Phase 1: **import được dữ liệu file Excel mẫu** (trừ sheet Mô h
 - Dashboard (Phase 4)
 - MVT (Phase 5)
 
-## 4. Layer seed Long Bình
+## 4. Layer seed Ngọc Tố
 
 | code | name | geometry_type | geometry_required |
 |------|------|---------------|-------------------|
@@ -111,7 +111,7 @@ Sau Phase 1: **import được dữ liệu file Excel mẫu** (trừ sheet Mô h
 | 5 | SP OCOP | ocop_subject + ocop_product | parent-child |
 | — | MH Hiệu quả | — | **Phase 3** (program_participation) |
 
-Chi tiết: [import-excel-long-binh.md](../appendix/import-excel-long-binh.md)
+Chi tiết: [import-excel-ngoc-to.md](../appendix/import-excel-ngoc-to.md)
 
 ## 6. API Phase 1
 
@@ -201,7 +201,7 @@ GET/POST           /api/dictionaries/:code/items
 
 ### Other
 
-- [ ] Dictionary seed Long Bình
+- [ ] Dictionary seed Ngọc Tố
 - [ ] audit_logs cơ bản
 - [ ] Adapter prototype modules → catalog API generic
 - [ ] E2E test: create layer → create record → geojson
@@ -227,6 +227,6 @@ GET/POST           /api/dictionaries/:code/items
 
 ## 10. Tham chiếu
 
-- [import-excel-long-binh.md](../appendix/import-excel-long-binh.md)
+- [import-excel-ngoc-to.md](../appendix/import-excel-ngoc-to.md)
 - [api-conventions.md](../appendix/api-conventions.md)
 - [field-types.md](../appendix/field-types.md)

@@ -21,7 +21,7 @@ export class HealthController {
     return apiResponse(
       {
         status: 'ok',
-        service: 'GIS Long Bình API',
+        service: 'GIS Ngọc Tố API',
         ward: `${ward.name}, ${ward.district}, ${ward.province}`,
         docs: '/api/layers',
       },

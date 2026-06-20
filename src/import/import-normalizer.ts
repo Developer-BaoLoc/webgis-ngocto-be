@@ -1,4 +1,5 @@
 import { DictionaryItemEntity } from '../database/entities/dictionary.entity';
+import { cleanDictionaryText } from '../common/utils/dictionary-normalization.util';
 
 const KHU_VUC_ALIASES: Record<string, string> = {
   'bình lợi': 'binh_loi',
@@ -32,6 +33,7 @@ function normalizeText(value: string): string {
     value
       .toLowerCase()
       .trim()
+      .replace(/\s+/g, ' ')
       .replace(/^kv\s*/i, ''),
   );
 }
@@ -97,7 +99,7 @@ export function findMissingCategoryLabels(
   const seen = new Set<string>();
 
   for (const raw of rawLabels) {
-    const label = String(raw).trim();
+    const label = cleanDictionaryText(String(raw));
     if (!label) continue;
 
     const key = normalizeText(label);

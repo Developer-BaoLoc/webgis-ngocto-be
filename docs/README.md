@@ -1,4 +1,4 @@
-# GIS Long Bình — Docs
+# GIS Ngọc Tố — Docs
 
 **Bắt đầu tại:** [PROJECT.md](./PROJECT.md) — tổng quan dự án, khái niệm, luồng frontend, trạng thái triển khai.
 

@@ -259,6 +259,34 @@ export class SavedViewsService {
     };
   }
 
+  async resolveRowsForDataset(tenantId: string, viewId: string) {
+    const view = await this.getForQuery(tenantId, viewId);
+    const fields = await this.validateConfig(
+      tenantId,
+      view.layerId,
+      view.config,
+    );
+    const fieldMap = new Map(fields.map((field) => [field.code, field]));
+    const config = this.normalizeConfig(view.config);
+    const params: unknown[] = [tenantId, view.layerId];
+    const whereParts = [
+      'f.tenant_id = $1',
+      'f.layer_id = $2',
+      'f.deleted_at IS NULL',
+    ];
+    this.appendFilters(whereParts, params, config.filters, fieldMap);
+    const sortClause = this.buildSortClause(config.sorts, fieldMap);
+    const rows = await this.dataSource.query<
+      Array<{ properties: Record<string, unknown> }>
+    >(
+      `SELECT f.properties FROM features f
+       WHERE ${whereParts.join(' AND ')}
+       ${sortClause}`,
+      params,
+    );
+    return { view, fields, rows: rows.map((row) => row.properties) };
+  }
+
   async getForQuery(tenantId: string, id: string): Promise<SavedViewEntity> {
     const view = await this.savedViewsRepository.findOne({
       where: { id, tenantId },

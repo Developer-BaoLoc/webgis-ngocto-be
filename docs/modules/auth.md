@@ -17,7 +17,7 @@
 
 ```json
 {
-  "email": "admin@longbinh.local",
+  "email": "admin@ngocto.local",
   "password": "Admin@123"
 }
 ```
@@ -33,8 +33,8 @@
     "user": {
       "id": "uuid",
       "tenantId": "uuid",
-      "email": "admin@longbinh.local",
-      "fullName": "Quản trị viên Long Bình",
+      "email": "admin@ngocto.local",
+      "fullName": "Quản trị viên Ngọc Tố",
       "roles": ["super_admin"]
     }
   },
@@ -51,7 +51,7 @@
   "data": {
     "id": "uuid",
     "tenantId": "uuid",
-    "email": "admin@longbinh.local",
+    "email": "admin@ngocto.local",
     "fullName": "...",
     "roles": ["super_admin"],
     "primaryOrganizationId": "uuid"
@@ -71,11 +71,11 @@
 ```bash
 curl -s -X POST http://localhost:4000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@longbinh.local","password":"Admin@123"}' | jq
+  -d '{"email":"admin@ngocto.local","password":"Admin@123"}' | jq
 
 TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@longbinh.local","password":"Admin@123"}' | jq -r '.data.accessToken')
+  -d '{"email":"admin@ngocto.local","password":"Admin@123"}' | jq -r '.data.accessToken')
 
 curl -s http://localhost:4000/api/auth/me -H "Authorization: Bearer $TOKEN" | jq
 ```
