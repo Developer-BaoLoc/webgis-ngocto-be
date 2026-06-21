@@ -43,6 +43,18 @@ export class DashboardsController {
     return apiResponse(items, { requestId });
   }
 
+  @Get('published/current')
+  async currentPublished(
+    @CurrentUser() user: AuthenticatedUser,
+    @RequestId() requestId?: string,
+  ) {
+    const dashboard = await this.dashboardsService.getCurrentPublished(
+      user.tenantId,
+      user.id,
+    );
+    return apiResponse(dashboard, { requestId });
+  }
+
   @Post()
   async create(
     @CurrentUser() user: AuthenticatedUser,

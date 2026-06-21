@@ -58,11 +58,10 @@ export class DashboardsService {
         .filter((revision) => revision.publishedAt === null)
         .map((revision) => revision.dashboardId),
     );
-    const dashboardIdsWithPublished = new Set(
-      revisions
-        .filter((revision) => revision.publishedAt !== null)
-        .map((revision) => revision.dashboardId),
-    );
+
+    const activePublishedId = items.find(
+      (item) => item.status === 'published',
+    )?.id;
 
     return items
       .filter(
@@ -74,7 +73,7 @@ export class DashboardsService {
       .map((item) => ({
         ...this.toSummary(item),
         hasDraft: dashboardIdsWithDraft.has(item.id),
-        hasPublished: dashboardIdsWithPublished.has(item.id),
+        hasPublished: item.id === activePublishedId,
       }));
   }
 
@@ -128,6 +127,9 @@ export class DashboardsService {
     const revision = await this.resolveRevision(dashboard, mode);
     if (mode === 'published' && !revision) {
       throw new BadRequestException('Dashboard này chưa được xuất bản.');
+    }
+    if (mode === 'draft' && !revision) {
+      throw new BadRequestException('Dashboard chưa có bản nháp.');
     }
     const widgets = revision
       ? await this.widgetsRepository.find({
@@ -193,27 +195,146 @@ export class DashboardsService {
     const dashboard = await this.findDashboard(tenantId, dashboardId);
     this.assertCanEdit(dashboard, userId);
 
-    const revision = await this.getEditableRevision(dashboard);
-    if (!revision) {
-      throw new BadRequestException('Không có bản draft để publish');
+    if (dashboard.status === 'published' && dashboard.currentRevisionId) {
+      const activeRevision = await this.revisionsRepository.findOne({
+        where: {
+          id: dashboard.currentRevisionId,
+          dashboardId: dashboard.id,
+          publishedAt: Not(IsNull()),
+        },
+      });
+      const pendingDraft = await this.revisionsRepository.findOne({
+        where: { dashboardId: dashboard.id, tenantId, publishedAt: IsNull() },
+      });
+      const publishedCount = await this.dashboardsRepository.count({
+        where: { tenantId, status: 'published' },
+      });
+      if (activeRevision && !pendingDraft && publishedCount === 1) {
+        return this.getDetail(tenantId, dashboardId, userId, 'published');
+      }
     }
 
-    const widgetCount = await this.widgetsRepository.count({
-      where: { dashboardRevisionId: revision.id },
+    await this.dataSource.transaction(async (manager) => {
+      const dashboardRepo = manager.getRepository(DashboardEntity);
+      const revisionRepo = manager.getRepository(DashboardRevisionEntity);
+      const widgetRepo = manager.getRepository(DashboardWidgetEntity);
+      const dashboards = await dashboardRepo
+        .createQueryBuilder('dashboard')
+        .where('dashboard.tenant_id = :tenantId', { tenantId })
+        .orderBy('dashboard.id', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
+      const target = dashboards.find((item) => item.id === dashboardId);
+      if (!target) throw new NotFoundException('Dashboard không tồn tại');
+
+      let revision = await revisionRepo.findOne({
+        where: { dashboardId: target.id, tenantId, publishedAt: IsNull() },
+        order: { version: 'DESC' },
+      });
+      if (
+        !revision &&
+        target.status === 'published' &&
+        target.currentRevisionId
+      ) {
+        revision = await revisionRepo.findOne({
+          where: {
+            id: target.currentRevisionId,
+            dashboardId: target.id,
+            tenantId,
+            publishedAt: Not(IsNull()),
+          },
+        });
+      }
+      if (!revision) {
+        throw new BadRequestException('Không có bản draft để publish');
+      }
+      const widgetCount = await widgetRepo.count({
+        where: { dashboardRevisionId: revision.id },
+      });
+      if (widgetCount === 0) {
+        throw new BadRequestException('Dashboard phải có ít nhất 1 widget');
+      }
+
+      for (const other of dashboards) {
+        if (other.id === target.id || other.status !== 'published') continue;
+        let editable = await revisionRepo.findOne({
+          where: {
+            dashboardId: other.id,
+            tenantId,
+            publishedAt: IsNull(),
+          },
+          order: { version: 'DESC' },
+        });
+        if (!editable && other.currentRevisionId) {
+          const published = await revisionRepo.findOne({
+            where: {
+              id: other.currentRevisionId,
+              dashboardId: other.id,
+              tenantId,
+            },
+          });
+          if (published) {
+            const maxVersion = await revisionRepo
+              .createQueryBuilder('revision')
+              .select('COALESCE(MAX(revision.version), 0)', 'max')
+              .where('revision.dashboard_id = :dashboardId', {
+                dashboardId: other.id,
+              })
+              .getRawOne<{ max: string }>();
+            editable = await revisionRepo.save(
+              revisionRepo.create({
+                dashboardId: other.id,
+                tenantId,
+                version: Number(maxVersion?.max ?? 0) + 1,
+                layoutConfig: published.layoutConfig,
+                filterConfig: published.filterConfig,
+              }),
+            );
+            const publishedWidgets = await widgetRepo.find({
+              where: { dashboardRevisionId: published.id },
+              order: { sortOrder: 'ASC', createdAt: 'ASC' },
+            });
+            await widgetRepo.save(
+              publishedWidgets.map((widget) =>
+                widgetRepo.create({
+                  dashboardRevisionId: editable!.id,
+                  widgetType: widget.widgetType,
+                  title: widget.title,
+                  layoutConfig: widget.layoutConfig,
+                  dataSourceConfig: widget.dataSourceConfig,
+                  displayConfig: widget.displayConfig,
+                  interactionConfig: widget.interactionConfig,
+                  sortOrder: widget.sortOrder,
+                }),
+              ),
+            );
+          }
+        }
+        other.status = 'draft';
+        other.currentRevisionId = editable?.id ?? other.currentRevisionId;
+        await dashboardRepo.save(other);
+      }
+
+      if (!revision.publishedAt) {
+        revision.publishedAt = new Date();
+        revision.publishedBy = userId;
+      }
+      target.status = 'published';
+      target.currentRevisionId = revision.id;
+      await revisionRepo.save(revision);
+      await dashboardRepo.save(target);
     });
-    if (widgetCount === 0) {
-      throw new BadRequestException('Dashboard phải có ít nhất 1 widget');
-    }
-
-    revision.publishedAt = new Date();
-    revision.publishedBy = userId;
-    dashboard.status = 'published';
-    dashboard.currentRevisionId = revision.id;
-
-    await this.revisionsRepository.save(revision);
-    await this.dashboardsRepository.save(dashboard);
 
     return this.getDetail(tenantId, dashboardId, userId, 'published');
+  }
+
+  async getCurrentPublished(tenantId: string, userId: string) {
+    const dashboard = await this.dashboardsRepository.findOne({
+      where: { tenantId, status: 'published' },
+      order: { updatedAt: 'DESC' },
+    });
+    if (!dashboard) return null;
+    return this.getDetail(tenantId, dashboard.id, userId, 'published');
   }
 
   async createDraftFromPublished(
@@ -237,8 +358,6 @@ export class DashboardsService {
       order: { version: 'DESC' },
     });
     if (existingDraft) {
-      dashboard.status = 'draft';
-      await this.dashboardsRepository.save(dashboard);
       return this.getDetail(tenantId, dashboardId, userId, 'draft');
     }
 
@@ -284,9 +403,6 @@ export class DashboardsService {
         }),
       );
     }
-
-    dashboard.status = 'draft';
-    await this.dashboardsRepository.save(dashboard);
 
     return this.getDetail(tenantId, dashboardId, userId, 'draft');
   }
@@ -408,8 +524,12 @@ export class DashboardsService {
       return this.getEditableRevision(dashboard);
     }
 
+    if (dashboard.status !== 'published' || !dashboard.currentRevisionId) {
+      return null;
+    }
     return this.revisionsRepository.findOne({
       where: {
+        id: dashboard.currentRevisionId,
         dashboardId: dashboard.id,
         tenantId: dashboard.tenantId,
         publishedAt: Not(IsNull()),
