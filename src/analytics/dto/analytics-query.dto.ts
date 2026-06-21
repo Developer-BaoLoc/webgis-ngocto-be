@@ -57,8 +57,8 @@ export class AnalyticsQueryDto {
   @IsUUID()
   viewId?: string;
 
-  @IsIn(['count', 'sum', 'avg', 'min', 'max', 'top'])
-  aggregation: 'count' | 'sum' | 'avg' | 'min' | 'max' | 'top';
+  @IsIn(['count', 'sum', 'avg', 'min', 'max', 'top', 'records'])
+  aggregation: 'count' | 'sum' | 'avg' | 'min' | 'max' | 'top' | 'records';
 
   @IsOptional()
   @IsString()

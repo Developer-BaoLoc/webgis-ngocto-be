@@ -133,6 +133,7 @@ export function buildStyleConfig(
   geometryType: LayerGeometryType,
   style: Record<string, unknown>,
 ): LayerStyleConfig {
+  const dynamicStyle = normalizeDynamicStyle(style);
   if (geometryType === 'sub_layer') {
     return {
       geometryType: 'sub_layer',
@@ -147,6 +148,7 @@ export function buildStyleConfig(
     const icon = resolveOptionalLayerIcon(style);
     return {
       geometryType: 'point',
+      ...dynamicStyle,
       ...(icon ? { icon } : {}),
     };
   }
@@ -162,6 +164,7 @@ export function buildStyleConfig(
     }
     return {
       geometryType: 'line',
+      ...dynamicStyle,
       lineColor,
       lineWidth,
     };
@@ -176,6 +179,7 @@ export function buildStyleConfig(
   }
   return {
     geometryType: 'polygon',
+    ...dynamicStyle,
     fillColor,
     strokeColor,
   };
@@ -190,6 +194,7 @@ export function parseStoredStyleConfig(
     if (styleConfig.geometryType === 'point' && typeof icon === 'string') {
       return {
         geometryType: 'point',
+        ...normalizeDynamicStyle(styleConfig),
         icon: { source: 'preset', name: icon },
       };
     }
@@ -197,12 +202,14 @@ export function parseStoredStyleConfig(
       const storedIcon = readStoredIcon(styleConfig);
       return {
         geometryType: 'point',
+        ...normalizeDynamicStyle(styleConfig),
         ...(storedIcon ? { icon: storedIcon } : {}),
       };
     }
     if (styleConfig.geometryType === 'line') {
       return {
         geometryType: 'line',
+        ...normalizeDynamicStyle(styleConfig),
         lineColor: String(styleConfig.lineColor ?? '#3388ff'),
         lineWidth: Number(styleConfig.lineWidth ?? 2),
       };
@@ -210,6 +217,7 @@ export function parseStoredStyleConfig(
     if (styleConfig.geometryType === 'polygon') {
       return {
         geometryType: 'polygon',
+        ...normalizeDynamicStyle(styleConfig),
         fillColor: String(styleConfig.fillColor ?? '#3388ff'),
         strokeColor: String(styleConfig.strokeColor ?? '#2266cc'),
       };
@@ -240,22 +248,92 @@ export function parseStoredStyleConfig(
   if (inferred === 'point') {
     const icon = readStoredIcon(styleConfig);
     if (icon) {
-      return { geometryType: 'point', icon };
+      return {
+        geometryType: 'point',
+        ...normalizeDynamicStyle(styleConfig),
+        icon,
+      };
     }
     return {
       geometryType: 'point',
+      ...normalizeDynamicStyle(styleConfig),
     };
   }
   if (inferred === 'line') {
     return {
       geometryType: 'line',
+      ...normalizeDynamicStyle(styleConfig),
       lineColor: String(styleConfig.lineColor ?? '#3388ff'),
       lineWidth: Number(styleConfig.lineWidth ?? 2),
     };
   }
   return {
     geometryType: 'polygon',
+    ...normalizeDynamicStyle(styleConfig),
     fillColor: String(styleConfig.fillColor ?? '#3388ff'),
     strokeColor: String(styleConfig.strokeColor ?? '#2266cc'),
+  };
+}
+
+function normalizeDynamicStyle(
+  style: Record<string, unknown>,
+): Record<string, unknown> {
+  if (style.styleMode !== 'by_value') return { styleMode: 'single' };
+
+  const styleField = String(style.styleField ?? '').trim();
+  if (!styleField) {
+    throw new BadRequestException('Style theo giá trị cần chọn styleField');
+  }
+  const rules = Array.isArray(style.styleRules)
+    ? style.styleRules.flatMap((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+        const rule = item as Record<string, unknown>;
+        const value = rule.value;
+        if (
+          typeof value !== 'string' &&
+          typeof value !== 'number' &&
+          typeof value !== 'boolean'
+        ) {
+          return [];
+        }
+        return [
+          {
+            value,
+            ...(typeof rule.label === 'string' ? { label: rule.label } : {}),
+            ...(typeof rule.fillColor === 'string'
+              ? { fillColor: rule.fillColor }
+              : {}),
+            ...(typeof rule.strokeColor === 'string'
+              ? { strokeColor: rule.strokeColor }
+              : {}),
+            ...(typeof rule.lineColor === 'string'
+              ? { lineColor: rule.lineColor }
+              : {}),
+          },
+        ];
+      })
+    : [];
+  const fallback =
+    style.fallbackStyle &&
+    typeof style.fallbackStyle === 'object' &&
+    !Array.isArray(style.fallbackStyle)
+      ? (style.fallbackStyle as Record<string, unknown>)
+      : {};
+
+  return {
+    styleMode: 'by_value',
+    styleField,
+    styleRules: rules,
+    fallbackStyle: {
+      ...(typeof fallback.fillColor === 'string'
+        ? { fillColor: fallback.fillColor }
+        : {}),
+      ...(typeof fallback.strokeColor === 'string'
+        ? { strokeColor: fallback.strokeColor }
+        : {}),
+      ...(typeof fallback.lineColor === 'string'
+        ? { lineColor: fallback.lineColor }
+        : {}),
+    },
   };
 }

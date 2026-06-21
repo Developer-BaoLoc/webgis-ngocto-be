@@ -40,6 +40,11 @@ export class DashboardWidgetInputDto {
     'map',
     'text',
     'global_filter',
+    'timeline',
+    'calendar',
+    'progress',
+    'milestone',
+    'activity_history',
   ])
   widgetType: string;
 

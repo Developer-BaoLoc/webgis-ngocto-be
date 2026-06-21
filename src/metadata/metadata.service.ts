@@ -28,6 +28,7 @@ import {
   GEOMETRY_TYPE_TO_KIND,
   LAYER_GEOMETRY_TYPE_CATALOG,
   LAYER_ICON_UPLOAD,
+  DynamicLayerStyle,
   LayerGeometryType,
   LayerStyleConfig,
 } from './constants/layer-geometry.constants';
@@ -824,18 +825,21 @@ export class MetadataService {
 
     if (stored.geometryType === 'point') {
       const icon = stored.icon;
-      if (!icon) return {};
+      const dynamicStyle = this.flattenDynamicStyle(stored);
+      if (!icon) return dynamicStyle;
       if (icon.source === 'upload') {
         return {
+          ...dynamicStyle,
           iconAttachmentId: icon.attachmentId,
           iconUrl: icon.url,
         };
       }
-      return { icon: icon.name };
+      return { ...dynamicStyle, icon: icon.name };
     }
 
     if (stored.geometryType === 'line') {
       return {
+        ...this.flattenDynamicStyle(stored),
         lineColor: stored.lineColor,
         lineWidth: stored.lineWidth,
       };
@@ -844,8 +848,18 @@ export class MetadataService {
     if (stored.geometryType === 'sub_layer') return {};
 
     return {
+      ...this.flattenDynamicStyle(stored),
       fillColor: stored.fillColor,
       strokeColor: stored.strokeColor,
+    };
+  }
+
+  private flattenDynamicStyle(stored: LayerStyleConfig & DynamicLayerStyle) {
+    return {
+      styleMode: stored.styleMode ?? 'single',
+      ...(stored.styleField ? { styleField: stored.styleField } : {}),
+      ...(stored.styleRules ? { styleRules: stored.styleRules } : {}),
+      ...(stored.fallbackStyle ? { fallbackStyle: stored.fallbackStyle } : {}),
     };
   }
 

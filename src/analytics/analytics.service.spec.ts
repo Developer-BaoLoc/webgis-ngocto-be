@@ -90,6 +90,38 @@ describe('AnalyticsService Dataset query', () => {
     expect(result.records).toEqual([{ value: 9 }, { value: 3 }]);
   });
 
+  it('returns selected raw records for operational widgets', async () => {
+    datasetsService.resolveDataset.mockResolvedValue({
+      fields: [
+        { key: 'title', label: 'Tiêu đề', type: 'text' },
+        { key: 'date', label: 'Ngày', type: 'date' },
+        { key: 'status', label: 'Trạng thái', type: 'select' },
+      ],
+      rows: [
+        { title: 'Bón phân', date: '2026-07-02', status: 'sap_toi' },
+        { title: 'Gieo sạ', date: '2026-06-20', status: 'da_xong' },
+      ],
+    });
+
+    const result = await service.query('tenant-id', {
+      datasetId: 'dataset-id',
+      aggregation: 'records',
+      displayFields: ['title', 'date'],
+      sort: { field: 'date', direction: 'asc' },
+      limit: 1,
+    });
+
+    expect(result).toMatchObject({
+      aggregation: 'records',
+      fieldLabels: {
+        title: 'Tiêu đề',
+        date: 'Ngày',
+        status: 'Trạng thái',
+      },
+      records: [{ title: 'Gieo sạ', date: '2026-06-20' }],
+    });
+  });
+
   it('rejects a non-numeric metric field', async () => {
     datasetsService.resolveDataset.mockResolvedValue({
       fields: [{ key: 'name', label: 'Tên', type: 'text' }],

@@ -28,18 +28,39 @@ export type LayerIcon =
   | { source: 'preset'; name: string }
   | { source: 'upload'; attachmentId: string; url: string };
 
-export type PointLayerStyle = {
+export type LayerStyleMode = 'single' | 'by_value';
+
+export type LayerStyleRule = {
+  value: string | number | boolean;
+  label?: string;
+  fillColor?: string;
+  strokeColor?: string;
+  lineColor?: string;
+};
+
+export type DynamicLayerStyle = {
+  styleMode?: LayerStyleMode;
+  styleField?: string;
+  styleRules?: LayerStyleRule[];
+  fallbackStyle?: {
+    fillColor?: string;
+    strokeColor?: string;
+    lineColor?: string;
+  };
+};
+
+export type PointLayerStyle = DynamicLayerStyle & {
   geometryType: 'point';
   icon?: LayerIcon;
 };
 
-export type LineLayerStyle = {
+export type LineLayerStyle = DynamicLayerStyle & {
   geometryType: 'line';
   lineColor: string;
   lineWidth: number;
 };
 
-export type PolygonLayerStyle = {
+export type PolygonLayerStyle = DynamicLayerStyle & {
   geometryType: 'polygon';
   fillColor: string;
   strokeColor: string;

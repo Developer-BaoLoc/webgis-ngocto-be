@@ -36,6 +36,7 @@ const DATASET_GROUPABLE_FIELD_TYPES = new Set([
 
 type SchemaField = {
   code: string;
+  label?: string;
   fieldType: string;
   dataSchema: Record<string, unknown>;
 };
@@ -79,6 +80,7 @@ export type AnalyticsQueryResult = {
   value?: number;
   rows?: AnalyticsRow[];
   records?: Array<Record<string, unknown>>;
+  fieldLabels?: Record<string, string>;
 };
 
 @Injectable()
@@ -124,8 +126,11 @@ export class AnalyticsService {
     }
 
     const fieldMap = new Map(schemaFields.map((field) => [field.code, field]));
+    const fieldLabels = Object.fromEntries(
+      schemaFields.map((field) => [field.code, field.label ?? field.code]),
+    );
 
-    if (query.aggregation !== 'count' && !query.fieldCode) {
+    if (!['count', 'records'].includes(query.aggregation) && !query.fieldCode) {
       throw new BadRequestException(
         'metricField (hoặc fieldCode cũ) bắt buộc với sum/avg/min/max',
       );
@@ -144,6 +149,14 @@ export class AnalyticsService {
     }
     for (const sort of query.sorts) {
       this.assertKnownField(fieldMap, sort.field, ['sort']);
+    }
+    const displayFields = dto.displayFields?.length
+      ? dto.displayFields
+      : schemaFields.map((field) => field.code);
+    if (query.aggregation === 'records') {
+      for (const field of displayFields) {
+        this.assertKnownField(fieldMap, field, ['display']);
+      }
     }
 
     const params: unknown[] = [tenantId, query.layerId];
@@ -271,6 +284,30 @@ export class AnalyticsService {
         ${sortClause}
       )`;
 
+    if (query.aggregation === 'records') {
+      const rows = await this.dataSource.query<
+        Array<{ record: Record<string, unknown> }>
+      >(
+        `${viewFeaturesCte}
+         SELECT f.properties AS record
+         FROM view_features f
+         ${sortClause}
+         LIMIT ${query.resultLimit}`,
+        params,
+      );
+      return {
+        viewId: query.viewId,
+        layerId: query.layerId,
+        aggregation: 'records',
+        fieldLabels,
+        records: rows.map(({ record }) =>
+          Object.fromEntries(
+            displayFields.map((field) => [field, record?.[field]]),
+          ),
+        ),
+      };
+    }
+
     if (!query.groupByFieldCode) {
       const valueSql = this.buildAggregationSql(
         query.aggregation,
@@ -290,6 +327,7 @@ export class AnalyticsService {
         layerId: query.layerId,
         aggregation: query.aggregation,
         fieldCode: query.fieldCode,
+        fieldLabels,
         value: Number(rows[0]?.value ?? 0),
       };
     }
@@ -338,6 +376,7 @@ export class AnalyticsService {
       aggregation: query.aggregation,
       fieldCode: query.fieldCode,
       groupByFieldCode: query.groupByFieldCode,
+      fieldLabels,
       rows: rows.map((row) => {
         const rawLabel = row.raw_label ?? '';
         return {
@@ -403,7 +442,9 @@ export class AnalyticsService {
     };
 
     if (
-      !['count', 'sum', 'avg', 'min', 'max', 'top'].includes(dto.aggregation)
+      !['count', 'sum', 'avg', 'min', 'max', 'top', 'records'].includes(
+        dto.aggregation,
+      )
     ) {
       throw new BadRequestException('aggregation không hợp lệ');
     }
@@ -448,8 +489,11 @@ export class AnalyticsService {
         ...(dto.filters ?? []),
         ...(dto.globalFilters ?? []),
       ],
-      sorts: viewSorts,
-      resultLimit: dto.limit ?? 50,
+      sorts: [
+        ...(dto.sort ? [dto.sort] : []),
+        ...viewSorts.filter((sort) => sort.field !== dto.sort?.field),
+      ],
+      resultLimit: Math.min(500, Math.max(1, dto.limit ?? 50)),
     };
   }
 
@@ -464,6 +508,9 @@ export class AnalyticsService {
     const fieldMap = new Map(
       resolved.fields.map((field) => [field.key, field]),
     );
+    const fieldLabels = Object.fromEntries(
+      resolved.fields.map((field) => [field.key, field.label]),
+    );
     const metricField = dto.metricField ?? dto.fieldCode;
     const dimensionField = dto.dimensionField ?? dto.groupByFieldCode;
     if (metricField && !fieldMap.has(metricField)) {
@@ -475,6 +522,43 @@ export class AnalyticsService {
       throw new NotFoundException(
         `Dataset field không tồn tại: ${dimensionField}`,
       );
+    }
+    if (dto.aggregation === 'records') {
+      const displayFields = dto.displayFields?.length
+        ? dto.displayFields
+        : resolved.fields.map((field) => field.key);
+      for (const field of displayFields) {
+        if (!fieldMap.has(field)) {
+          throw new NotFoundException(`Dataset field không tồn tại: ${field}`);
+        }
+      }
+      const sortField = dto.sort?.field;
+      if (sortField && !fieldMap.has(sortField)) {
+        throw new NotFoundException(
+          `Dataset field không tồn tại: ${sortField}`,
+        );
+      }
+      const sourceRows = sortField
+        ? [...resolved.rows].sort((a, b) =>
+            this.compareDatasetValues(
+              a[sortField],
+              b[sortField],
+              dto.sort?.direction === 'desc' ? 'desc' : 'asc',
+            ),
+          )
+        : resolved.rows;
+      return {
+        datasetId: dto.datasetId,
+        aggregation: 'records',
+        fieldLabels,
+        records: sourceRows
+          .slice(0, dto.limit ?? 50)
+          .map((row) =>
+            Object.fromEntries(
+              displayFields.map((field) => [field, row[field]]),
+            ),
+          ),
+      };
     }
     if (dto.aggregation !== 'count' && !metricField) {
       throw new BadRequestException('metricField là bắt buộc với Dataset');
@@ -524,6 +608,7 @@ export class AnalyticsService {
       return {
         datasetId: dto.datasetId,
         aggregation: 'top',
+        fieldLabels,
         fieldCode: metricField,
         records,
       };
@@ -571,6 +656,7 @@ export class AnalyticsService {
         aggregation: dto.aggregation,
         fieldCode: metricField,
         groupByFieldCode: dimensionField,
+        fieldLabels,
         rows,
       };
     }
@@ -582,6 +668,7 @@ export class AnalyticsService {
       datasetId: dto.datasetId,
       aggregation: dto.aggregation,
       fieldCode: metricField,
+      fieldLabels,
       value: this.aggregateDatasetValues(values, dto.aggregation),
     };
   }
