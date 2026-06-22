@@ -46,6 +46,11 @@ export class DashboardWidgetInputDto {
     'progress',
     'milestone',
     'activity_history',
+    'minimap',
+    'progress_ring',
+    'activity_feed',
+    'treemap',
+    'seasonal_calendar',
   ])
   widgetType: string;
 
