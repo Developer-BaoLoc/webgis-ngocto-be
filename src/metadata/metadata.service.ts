@@ -815,6 +815,51 @@ export class MetadataService {
       input.iconAttachmentId = attachment.id;
     }
 
+    if (Array.isArray(style.iconRules)) {
+      input.iconRules = await Promise.all(
+        style.iconRules.map(async (rawRule) => {
+          if (
+            !rawRule ||
+            typeof rawRule !== 'object' ||
+            Array.isArray(rawRule)
+          ) {
+            return rawRule;
+          }
+          const rule = rawRule as Record<string, unknown>;
+          const ruleAttachmentId = String(rule.attachmentId ?? '').trim();
+          if (!ruleAttachmentId) return rule;
+          const attachment = await this.assetsService.getAttachment(
+            tenantId,
+            ruleAttachmentId,
+          );
+          return {
+            ...rule,
+            attachmentId: attachment.id,
+            url: this.assetsService.buildPublicUrl(attachment.id),
+          };
+        }),
+      );
+    }
+
+    if (
+      style.fallbackIcon &&
+      typeof style.fallbackIcon === 'object' &&
+      !Array.isArray(style.fallbackIcon)
+    ) {
+      const fallback = style.fallbackIcon as Record<string, unknown>;
+      const fallbackAttachmentId = String(fallback.attachmentId ?? '').trim();
+      if (fallbackAttachmentId) {
+        const attachment = await this.assetsService.getAttachment(
+          tenantId,
+          fallbackAttachmentId,
+        );
+        input.fallbackIcon = {
+          attachmentId: attachment.id,
+          url: this.assetsService.buildPublicUrl(attachment.id),
+        };
+      }
+    }
+
     return input;
   }
 
@@ -860,6 +905,8 @@ export class MetadataService {
       ...(stored.styleField ? { styleField: stored.styleField } : {}),
       ...(stored.styleRules ? { styleRules: stored.styleRules } : {}),
       ...(stored.fallbackStyle ? { fallbackStyle: stored.fallbackStyle } : {}),
+      ...(stored.iconRules ? { iconRules: stored.iconRules } : {}),
+      ...(stored.fallbackIcon ? { fallbackIcon: stored.fallbackIcon } : {}),
     };
   }
 

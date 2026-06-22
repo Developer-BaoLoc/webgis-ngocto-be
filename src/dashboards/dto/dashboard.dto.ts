@@ -37,6 +37,7 @@ export class DashboardWidgetInputDto {
     'donut',
     'line',
     'table',
+    'ranking',
     'map',
     'text',
     'global_filter',

@@ -278,6 +278,62 @@ export function parseStoredStyleConfig(
 function normalizeDynamicStyle(
   style: Record<string, unknown>,
 ): Record<string, unknown> {
+  if (style.styleMode === 'single_icon') {
+    return { styleMode: 'single_icon' };
+  }
+  if (style.styleMode === 'icon_by_value') {
+    const styleField = String(style.styleField ?? '').trim();
+    if (!styleField) {
+      throw new BadRequestException('Icon theo giá trị cần chọn styleField');
+    }
+    const iconRules = Array.isArray(style.iconRules)
+      ? style.iconRules.flatMap((item) => {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) {
+            return [];
+          }
+          const rule = item as Record<string, unknown>;
+          const value = rule.value;
+          const attachmentId = String(rule.attachmentId ?? '').trim();
+          const url = String(rule.url ?? '').trim();
+          if (
+            typeof value !== 'string' &&
+            typeof value !== 'number' &&
+            typeof value !== 'boolean'
+          ) {
+            return [];
+          }
+          return [
+            {
+              value,
+              ...(typeof rule.label === 'string' ? { label: rule.label } : {}),
+              ...(attachmentId ? { attachmentId } : {}),
+              ...(url ? { url } : {}),
+            },
+          ];
+        })
+      : [];
+    const fallback =
+      style.fallbackIcon &&
+      typeof style.fallbackIcon === 'object' &&
+      !Array.isArray(style.fallbackIcon)
+        ? (style.fallbackIcon as Record<string, unknown>)
+        : {};
+    const fallbackAttachmentId = String(fallback.attachmentId ?? '').trim();
+    const fallbackUrl = String(fallback.url ?? '').trim();
+    return {
+      styleMode: 'icon_by_value',
+      styleField,
+      iconRules,
+      ...(fallbackAttachmentId && fallbackUrl
+        ? {
+            fallbackIcon: {
+              attachmentId: fallbackAttachmentId,
+              url: fallbackUrl,
+            },
+          }
+        : {}),
+    };
+  }
   if (style.styleMode !== 'by_value') return { styleMode: 'single' };
 
   const styleField = String(style.styleField ?? '').trim();

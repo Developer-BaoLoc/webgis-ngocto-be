@@ -28,7 +28,21 @@ export type LayerIcon =
   | { source: 'preset'; name: string }
   | { source: 'upload'; attachmentId: string; url: string };
 
-export type LayerStyleMode = 'single' | 'by_value';
+export type LayerStyleMode =
+  | 'single'
+  | 'by_value'
+  | 'single_icon'
+  | 'icon_by_value';
+
+export type LayerIconReference = {
+  attachmentId?: string;
+  url?: string;
+};
+
+export type LayerIconRule = LayerIconReference & {
+  value: string | number | boolean;
+  label?: string;
+};
 
 export type LayerStyleRule = {
   value: string | number | boolean;
@@ -47,6 +61,8 @@ export type DynamicLayerStyle = {
     strokeColor?: string;
     lineColor?: string;
   };
+  iconRules?: LayerIconRule[];
+  fallbackIcon?: LayerIconReference;
 };
 
 export type PointLayerStyle = DynamicLayerStyle & {
