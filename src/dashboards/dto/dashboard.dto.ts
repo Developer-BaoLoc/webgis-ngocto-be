@@ -62,8 +62,11 @@ export class DashboardWidgetInputDto {
   @IsObject()
   layoutConfig: Record<string, unknown>;
 
+  // @IsObject()
+  // dataSourceConfig: Record<string, unknown>;
+  @IsOptional()
   @IsObject()
-  dataSourceConfig: Record<string, unknown>;
+  dataSourceConfig?: Record<string, unknown>;
 
   @IsOptional()
   @IsObject()
