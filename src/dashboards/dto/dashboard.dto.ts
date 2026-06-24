@@ -50,6 +50,11 @@ export class DashboardWidgetInputDto {
     'progress_ring',
     'activity_feed',
     'treemap',
+    'alert_center',
+    'spatial_summary',
+    'spatial_ranking',
+    'thematic_map',
+    'spatial_alert',
     'seasonal_calendar',
   ])
   widgetType: string;

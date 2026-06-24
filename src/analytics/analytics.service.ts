@@ -9,8 +9,12 @@ import { SavedViewsService } from '../saved-views/saved-views.service';
 import { DatasetsService } from '../datasets/datasets.service';
 import {
   AnalyticsFilterDto,
+  AnalyticsFormulaDto,
+  AnalyticsHavingFilterDto,
   AnalyticsQueryDto,
+  AnalyticsTimeDto,
 } from './dto/analytics-query.dto';
+import { SpatialAnalyticsService } from './spatial-analytics.service';
 
 const FIELD_CODE_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const NUMERIC_FIELD_TYPES = new Set([
@@ -33,6 +37,7 @@ const DATASET_GROUPABLE_FIELD_TYPES = new Set([
   'boolean',
   'select',
 ]);
+const FORMULA_FIELD_CODE = '__formula';
 
 type SchemaField = {
   code: string;
@@ -53,6 +58,8 @@ type ViewSort = {
   direction?: unknown;
 };
 
+type TimeRange = { from: string; to: string };
+
 type ResolvedAnalyticsQuery = {
   viewId?: string;
   layerId: string;
@@ -60,6 +67,8 @@ type ResolvedAnalyticsQuery = {
   fieldCode?: string;
   groupByFieldCode?: string;
   filters: AnalyticsFilterDto[];
+  having: AnalyticsHavingFilterDto[];
+  time?: AnalyticsTimeDto;
   sorts: Array<{ field: string; direction: 'asc' | 'desc' }>;
   resultLimit: number;
 };
@@ -81,7 +90,96 @@ export type AnalyticsQueryResult = {
   rows?: AnalyticsRow[];
   records?: Array<Record<string, unknown>>;
   fieldLabels?: Record<string, string>;
+  comparison?: {
+    currentValue?: number;
+    previousValue?: number;
+    delta?: number;
+    deltaPercent?: number | null;
+    label: string;
+    currentRange?: { from: string; to: string };
+    previousRange?: { from: string; to: string };
+  };
 };
+
+class FormulaEvaluator {
+  private readonly tokens: string[];
+  private index = 0;
+
+  constructor(
+    expression: string,
+    private readonly readField: (field: string) => number | null,
+  ) {
+    this.tokens =
+      expression.match(/[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[+\-*/()]/g) ??
+      [];
+  }
+
+  evaluate() {
+    const value = this.parseExpression();
+    if (this.index !== this.tokens.length) {
+      throw new BadRequestException('Formula không hợp lệ');
+    }
+    return value;
+  }
+
+  private parseExpression(): number | null {
+    let value = this.parseTerm();
+    while (this.peek() === '+' || this.peek() === '-') {
+      const operator = this.next();
+      const right = this.parseTerm();
+      value =
+        value === null || right === null
+          ? null
+          : operator === '+'
+            ? value + right
+            : value - right;
+    }
+    return value;
+  }
+
+  private parseTerm(): number | null {
+    let value = this.parseFactor();
+    while (this.peek() === '*' || this.peek() === '/') {
+      const operator = this.next();
+      const right = this.parseFactor();
+      if (value === null || right === null || (operator === '/' && right === 0)) {
+        value = null;
+      } else {
+        value = operator === '*' ? value * right : value / right;
+      }
+    }
+    return value;
+  }
+
+  private parseFactor(): number | null {
+    const token = this.next();
+    if (!token) throw new BadRequestException('Formula không hợp lệ');
+    if (token === '-') {
+      const value = this.parseFactor();
+      return value === null ? null : -value;
+    }
+    if (token === '(') {
+      const value = this.parseExpression();
+      if (this.next() !== ')') {
+        throw new BadRequestException('Formula thiếu dấu ngoặc đóng');
+      }
+      return value;
+    }
+    if (/^\d+(?:\.\d+)?$/.test(token)) return Number(token);
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(token)) return this.readField(token);
+    throw new BadRequestException('Formula không hợp lệ');
+  }
+
+  private peek() {
+    return this.tokens[this.index];
+  }
+
+  private next() {
+    const token = this.tokens[this.index];
+    this.index += 1;
+    return token;
+  }
+}
 
 @Injectable()
 export class AnalyticsService {
@@ -90,16 +188,29 @@ export class AnalyticsService {
     private readonly metadataService: MetadataService,
     private readonly savedViewsService: SavedViewsService,
     private readonly datasetsService: DatasetsService,
+    private readonly spatialAnalyticsService: SpatialAnalyticsService,
   ) {}
 
   async query(
     tenantId: string,
     dto: AnalyticsQueryDto,
   ): Promise<AnalyticsQueryResult> {
+    if (dto.spatial && typeof dto.spatial === 'object') {
+      return this.spatialAnalyticsService.queryFromConfig(tenantId, dto.spatial);
+    }
+    dto.time = this.normalizeTimeInput(dto.time);
     if (dto.datasetId && (dto.viewId || dto.layerId)) {
       throw new BadRequestException(
         'datasetId không được dùng cùng viewId hoặc layerId',
       );
+    }
+    if (dto.formula?.enabled && !dto.datasetId) {
+      throw new BadRequestException(
+        'Formula hiện chỉ hỗ trợ truy vấn Dataset',
+      );
+    }
+    if (this.shouldCompareScalar(dto)) {
+      return this.queryScalarComparison(tenantId, dto);
     }
     if (dto.datasetId) {
       return this.queryDataset(tenantId, dto);
@@ -146,6 +257,12 @@ export class AnalyticsService {
 
     for (const filter of query.filters) {
       this.assertKnownField(fieldMap, filter.fieldCode, ['filter']);
+    }
+    for (const filter of query.having) {
+      this.assertKnownField(fieldMap, filter.field, [filter.aggregation]);
+    }
+    if (query.time?.enabled) {
+      this.assertKnownField(fieldMap, query.time.dateField, ['filter']);
     }
     for (const sort of query.sorts) {
       this.assertKnownField(fieldMap, sort.field, ['sort']);
@@ -265,6 +382,21 @@ export class AnalyticsService {
       paramIndex += 1;
     }
 
+    if (query.time?.enabled) {
+      const range = this.resolveTimeRange(
+        query.time.preset,
+        query.time.customFrom,
+        query.time.customTo,
+      );
+      const dateExtract = this.buildDateExtract(query.time.dateField);
+      whereParts.push(
+        `${dateExtract} >= $${paramIndex}::date`,
+        `${dateExtract} <= $${paramIndex + 1}::date`,
+      );
+      params.push(range.from, range.to);
+      paramIndex += 2;
+    }
+
     const sortClause = query.sorts.length
       ? `ORDER BY ${query.sorts
           .map((sort) => {
@@ -342,6 +474,13 @@ export class AnalyticsService {
       query.fieldCode,
       query.fieldCode ? fieldMap.get(query.fieldCode) : undefined,
     );
+    const havingClause = this.buildSqlHavingClause(
+      query.having,
+      valueSql,
+      query,
+      params,
+      paramIndex,
+    );
     const fromClause = this.buildFromClause(
       query.groupByFieldCode,
       groupField,
@@ -358,6 +497,7 @@ export class AnalyticsService {
         ${valueSql} AS value
       ${fromClause}
       GROUP BY 1
+      ${havingClause.sql}
       ORDER BY value DESC NULLS LAST, raw_label ASC NULLS LAST
       LIMIT ${query.resultLimit}
       `,
@@ -393,6 +533,13 @@ export class AnalyticsService {
     dataSourceConfig: Record<string, unknown> | undefined,
     globalFilters?: AnalyticsFilterDto[],
   ): Promise<AnalyticsQueryResult> {
+    if (dataSourceConfig?.spatial && typeof dataSourceConfig.spatial === 'object') {
+      return this.spatialAnalyticsService.queryFromConfig(
+        tenantId,
+        dataSourceConfig.spatial as Record<string, unknown>,
+      );
+    }
+
     if (
       !dataSourceConfig?.datasetId &&
       !dataSourceConfig?.viewId &&
@@ -425,6 +572,9 @@ export class AnalyticsService {
       ),
       filters:
         (dataSourceConfig.filters as AnalyticsFilterDto[] | undefined) ?? [],
+      having: this.readHavingFiltersFromConfig(dataSourceConfig),
+      formula: this.readFormulaFromConfig(dataSourceConfig),
+      time: this.readTimeFromConfig(dataSourceConfig),
       globalFilters,
       limit:
         typeof dataSourceConfig.limit === 'number'
@@ -450,6 +600,71 @@ export class AnalyticsService {
     }
 
     return this.query(tenantId, dto);
+  }
+
+  private shouldCompareScalar(dto: AnalyticsQueryDto) {
+    return (
+      dto.time?.enabled === true &&
+      dto.time.compare !== undefined &&
+      dto.time.compare !== 'none' &&
+      dto.aggregation !== 'records' &&
+      dto.aggregation !== 'top' &&
+      !dto.dimensionField &&
+      !dto.groupByFieldCode
+    );
+  }
+
+  private async queryScalarComparison(
+    tenantId: string,
+    dto: AnalyticsQueryDto,
+  ): Promise<AnalyticsQueryResult> {
+    const currentRange = this.resolveTimeRange(
+      dto.time!.preset,
+      dto.time!.customFrom,
+      dto.time!.customTo,
+    );
+    const previousRange = this.resolvePreviousTimeRange(
+      currentRange,
+      dto.time!.compare!,
+    );
+    const currentDto: AnalyticsQueryDto = {
+      ...dto,
+      time: { ...dto.time!, compare: 'none' },
+    };
+    const previousDto: AnalyticsQueryDto = {
+      ...dto,
+      time: {
+        ...dto.time!,
+        preset: 'custom',
+        customFrom: previousRange.from,
+        customTo: previousRange.to,
+        compare: 'none',
+      },
+    };
+    const [current, previous] = await Promise.all([
+      this.query(tenantId, currentDto),
+      this.query(tenantId, previousDto),
+    ]);
+    const currentValue = Number(current.value ?? 0);
+    const previousValue = Number(previous.value ?? 0);
+    const delta = currentValue - previousValue;
+    const deltaPercent =
+      previousValue === 0 ? null : (delta / Math.abs(previousValue)) * 100;
+    return {
+      ...current,
+      comparison: {
+        currentValue,
+        previousValue,
+        delta,
+        deltaPercent,
+        label:
+          dto.time!.compare === 'same_period_last_year'
+            ? 'So với cùng kỳ năm trước'
+            : 'So với kỳ trước',
+        currentRange,
+        previousRange,
+      },
+    };
   }
 
   private async resolveQuery(
@@ -493,6 +708,8 @@ export class AnalyticsService {
         ...(dto.sort ? [dto.sort] : []),
         ...viewSorts.filter((sort) => sort.field !== dto.sort?.field),
       ],
+      having: dto.having ?? [],
+      time: dto.time?.enabled ? dto.time : undefined,
       resultLimit: Math.min(500, Math.max(1, dto.limit ?? 50)),
     };
   }
@@ -511,9 +728,18 @@ export class AnalyticsService {
     const fieldLabels = Object.fromEntries(
       resolved.fields.map((field) => [field.key, field.label]),
     );
-    const metricField = dto.metricField ?? dto.fieldCode;
+    const formula = dto.formula?.enabled ? dto.formula : undefined;
+    if (formula) {
+      this.assertDatasetFormula(formula, fieldMap);
+      fieldLabels[FORMULA_FIELD_CODE] = formula.label;
+    }
+    const metricField = formula ? FORMULA_FIELD_CODE : dto.metricField ?? dto.fieldCode;
     const dimensionField = dto.dimensionField ?? dto.groupByFieldCode;
-    if (metricField && !fieldMap.has(metricField)) {
+    const isFormulaField = (field: string | undefined) =>
+      Boolean(formula && field === FORMULA_FIELD_CODE);
+    const hasDatasetField = (field: string | undefined) =>
+      Boolean(field && (fieldMap.has(field) || isFormulaField(field)));
+    if (metricField && !hasDatasetField(metricField)) {
       throw new NotFoundException(
         `Dataset field không tồn tại: ${metricField}`,
       );
@@ -523,30 +749,47 @@ export class AnalyticsService {
         `Dataset field không tồn tại: ${dimensionField}`,
       );
     }
+    if (dto.time?.enabled && !fieldMap.has(dto.time.dateField)) {
+      throw new NotFoundException(
+        `Dataset field không tồn tại: ${dto.time.dateField}`,
+      );
+    }
+    const datasetFilters = [...(dto.filters ?? []), ...(dto.globalFilters ?? [])];
+    const filteredRows = this.filterDatasetRows(
+      resolved.rows,
+      datasetFilters,
+      fieldMap,
+    );
+    const timeFilteredRows = dto.time?.enabled
+      ? this.filterDatasetRowsByTime(filteredRows, dto.time)
+      : filteredRows;
     if (dto.aggregation === 'records') {
       const displayFields = dto.displayFields?.length
         ? dto.displayFields
         : resolved.fields.map((field) => field.key);
       for (const field of displayFields) {
-        if (!fieldMap.has(field)) {
+        if (!hasDatasetField(field)) {
           throw new NotFoundException(`Dataset field không tồn tại: ${field}`);
         }
       }
       const sortField = dto.sort?.field;
-      if (sortField && !fieldMap.has(sortField)) {
+      if (sortField && !hasDatasetField(sortField)) {
         throw new NotFoundException(
           `Dataset field không tồn tại: ${sortField}`,
         );
       }
+      const formulaRows = formula
+        ? this.applyDatasetFormula(timeFilteredRows, formula, fieldMap)
+        : timeFilteredRows;
       const sourceRows = sortField
-        ? [...resolved.rows].sort((a, b) =>
+        ? [...formulaRows].sort((a, b) =>
             this.compareDatasetValues(
               a[sortField],
               b[sortField],
               dto.sort?.direction === 'desc' ? 'desc' : 'asc',
             ),
           )
-        : resolved.rows;
+        : formulaRows;
       return {
         datasetId: dto.datasetId,
         aggregation: 'records',
@@ -566,6 +809,7 @@ export class AnalyticsService {
     if (
       metricField &&
       dto.aggregation !== 'count' &&
+      !isFormulaField(metricField) &&
       !DATASET_NUMERIC_FIELD_TYPES.has(fieldMap.get(metricField)!.type)
     ) {
       throw new BadRequestException(
@@ -583,7 +827,7 @@ export class AnalyticsService {
 
     if (dto.aggregation === 'top') {
       const sortField = dto.sort?.field ?? metricField!;
-      if (!fieldMap.has(sortField)) {
+      if (!hasDatasetField(sortField)) {
         throw new NotFoundException(
           `Dataset field không tồn tại: ${sortField}`,
         );
@@ -593,11 +837,14 @@ export class AnalyticsService {
         ? dto.displayFields
         : resolved.fields.map((field) => field.key);
       for (const field of displayFields) {
-        if (!fieldMap.has(field)) {
+        if (!hasDatasetField(field)) {
           throw new NotFoundException(`Dataset field không tồn tại: ${field}`);
         }
       }
-      const records = [...resolved.rows]
+      const formulaRows = formula
+        ? this.applyDatasetFormula(timeFilteredRows, formula, fieldMap)
+        : timeFilteredRows;
+      const records = [...formulaRows]
         .sort((a, b) =>
           this.compareDatasetValues(a[sortField], b[sortField], direction),
         )
@@ -625,7 +872,10 @@ export class AnalyticsService {
         );
       }
       const groups = new Map<string, Array<number | null>>();
-      for (const row of resolved.rows) {
+      const formulaRows = formula
+        ? this.applyDatasetFormula(timeFilteredRows, formula, fieldMap)
+        : timeFilteredRows;
+      for (const row of formulaRows) {
         const label = this.datasetText(row[dimensionField], '(Trống)');
         const values = groups.get(label) ?? [];
         values.push(
@@ -635,12 +885,15 @@ export class AnalyticsService {
         );
         groups.set(label, values);
       }
-      const rows = [...groups.entries()]
-        .map(([label, values]) => ({
-          label,
-          rawLabel: label,
-          value: this.aggregateDatasetValues(values, dto.aggregation),
-        }))
+      const aggregatedRows = [...groups.entries()].map(([label, values]) => ({
+        label,
+        rawLabel: label,
+        value: this.aggregateDatasetValues(values, dto.aggregation),
+      }));
+      const rows = this.applyDatasetHavingFilters(aggregatedRows, dto.having ?? [], {
+        aggregation: dto.aggregation,
+        fieldCode: metricField,
+      })
         .sort((a, b) => {
           const direction = dto.sort?.direction === 'asc' ? 1 : -1;
           if (groupSortField === dimensionField) {
@@ -661,7 +914,10 @@ export class AnalyticsService {
       };
     }
 
-    const values = resolved.rows.map((row) =>
+    const formulaRows = formula
+      ? this.applyDatasetFormula(timeFilteredRows, formula, fieldMap)
+      : timeFilteredRows;
+    const values = formulaRows.map((row) =>
       dto.aggregation === 'count' ? 1 : this.datasetNumber(row[metricField!]),
     );
     return {
@@ -671,6 +927,420 @@ export class AnalyticsService {
       fieldLabels,
       value: this.aggregateDatasetValues(values, dto.aggregation),
     };
+  }
+
+  private applyDatasetHavingFilters(
+    rows: AnalyticsRow[],
+    filters: AnalyticsHavingFilterDto[],
+    query: Pick<ResolvedAnalyticsQuery, 'aggregation' | 'fieldCode'>,
+  ) {
+    if (filters.length === 0) return rows;
+    return rows.filter((row) =>
+      filters.every((filter) => {
+        this.assertCompatibleHavingFilter(filter, query);
+        const comparison = this.havingComparisonOperator(filter.operator);
+        const value = this.normalizeHavingValue(filter);
+        if (comparison === '>') return row.value > value;
+        if (comparison === '>=') return row.value >= value;
+        if (comparison === '<') return row.value < value;
+        if (comparison === '<=') return row.value <= value;
+        if (comparison === '=') return row.value === value;
+        if (comparison === '<>') return row.value !== value;
+        return false;
+      }),
+    );
+  }
+
+  private assertDatasetFormula(
+    formula: AnalyticsFormulaDto,
+    fieldMap: Map<string, { key: string; type: string }>,
+  ) {
+    const fields = this.extractFormulaFields(formula.expression);
+    if (fields.length === 0) {
+      throw new BadRequestException('Formula cần ít nhất một field số');
+    }
+    for (const field of fields) {
+      const datasetField = fieldMap.get(field);
+      if (!datasetField) {
+        throw new BadRequestException(`Formula field không tồn tại: ${field}`);
+      }
+      if (!DATASET_NUMERIC_FIELD_TYPES.has(datasetField.type)) {
+        throw new BadRequestException(`Formula field không phải số: ${field}`);
+      }
+    }
+  }
+
+  private applyDatasetFormula(
+    rows: Array<Record<string, unknown>>,
+    formula: AnalyticsFormulaDto,
+    fieldMap: Map<string, { key: string; type: string }>,
+  ) {
+    const fields = new Set(this.extractFormulaFields(formula.expression));
+    for (const field of fields) {
+      if (!fieldMap.has(field)) {
+        throw new BadRequestException(`Formula field không tồn tại: ${field}`);
+      }
+    }
+    return rows.map((row) => ({
+      ...row,
+      [FORMULA_FIELD_CODE]: this.evaluateFormulaExpression(
+        formula.expression,
+        row,
+        fields,
+      ),
+    }));
+  }
+
+  private evaluateFormulaExpression(
+    expression: string,
+    row: Record<string, unknown>,
+    fields: Set<string>,
+  ) {
+    try {
+      const evaluator = new FormulaEvaluator(expression, (field) => {
+        if (!fields.has(field)) {
+          throw new BadRequestException(`Formula field không hợp lệ: ${field}`);
+        }
+        return this.datasetNumber(row[field]);
+      });
+      const value = evaluator.evaluate();
+      return Number.isFinite(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractFormulaFields(expression: string) {
+    const tokens = expression.match(/[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[+\-*/()]/g) ?? [];
+    const compactTokens = tokens.join('');
+    const compactExpression = expression.replace(/\s+/g, '');
+    if (compactTokens !== compactExpression) {
+      throw new BadRequestException(
+        'Formula chỉ hỗ trợ field key, số, toán tử + - * / và ngoặc',
+      );
+    }
+    return Array.from(
+      new Set(
+        tokens.filter((token) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(token)),
+      ),
+    );
+  }
+
+  private filterDatasetRows(
+    rows: Array<Record<string, unknown>>,
+    filters: AnalyticsFilterDto[],
+    fieldMap: Map<string, { key: string; type: string }>,
+  ) {
+    if (filters.length === 0) return rows;
+    for (const filter of filters) {
+      if (!filter.fieldCode || !FIELD_CODE_PATTERN.test(filter.fieldCode)) {
+        throw new BadRequestException(
+          `Dataset filter fieldCode không hợp lệ: ${filter.fieldCode}`,
+        );
+      }
+      if (!fieldMap.has(filter.fieldCode)) {
+        throw new NotFoundException(
+          `Dataset field không tồn tại: ${filter.fieldCode}`,
+        );
+      }
+    }
+    return rows.filter((row) =>
+      filters.every((filter) =>
+        this.matchesDatasetFilter(row, filter, fieldMap),
+      ),
+    );
+  }
+
+  private matchesDatasetFilter(
+    row: Record<string, unknown>,
+    filter: AnalyticsFilterDto,
+    fieldMap: Map<string, { key: string; type: string }>,
+  ) {
+    const field = fieldMap.get(filter.fieldCode)!;
+    const operator = filter.operator ?? 'eq';
+    const value = row[filter.fieldCode];
+
+    if (operator === 'empty') return this.isDatasetEmptyValue(value);
+    if (operator === 'not_empty') return !this.isDatasetEmptyValue(value);
+
+    if (filter.value === undefined || filter.value === null) {
+      throw new BadRequestException(
+        `Dataset filter ${filter.fieldCode}: value là bắt buộc`,
+      );
+    }
+
+    if (operator === 'in') {
+      const candidates = Array.isArray(filter.value)
+        ? filter.value
+        : [filter.value];
+      if (candidates.length === 0) {
+        throw new BadRequestException(
+          `Dataset filter ${filter.fieldCode}: value phải có ít nhất một giá trị`,
+        );
+      }
+      const normalizedValue = this.datasetFilterText(value);
+      return candidates.some(
+        (candidate) => this.datasetFilterText(candidate) === normalizedValue,
+      );
+    }
+
+    if (operator === 'contains' || operator === 'not_contains') {
+      const haystack = this.datasetFilterText(value);
+      const needle = this.datasetFilterText(filter.value);
+      const matched = needle !== '' && haystack.includes(needle);
+      return operator === 'contains' ? matched : !matched;
+    }
+
+    if (['gt', 'gte', 'lt', 'lte'].includes(operator)) {
+      return this.compareDatasetFilterValue(
+        value,
+        filter.value,
+        field.type,
+        operator,
+      );
+    }
+
+    if (operator === 'eq' || operator === 'neq') {
+      const matched =
+        DATASET_NUMERIC_FIELD_TYPES.has(field.type)
+          ? this.datasetNumber(value) === this.datasetNumber(filter.value)
+          : field.type === 'date'
+            ? this.datasetDateKey(value) === this.datasetDateKey(filter.value)
+            : this.datasetFilterText(value) ===
+              this.datasetFilterText(filter.value);
+      return operator === 'eq' ? matched : !matched;
+    }
+
+    throw new BadRequestException(`Filter operator không hỗ trợ: ${operator}`);
+  }
+
+  private compareDatasetFilterValue(
+    left: unknown,
+    right: unknown,
+    fieldType: string,
+    operator: string,
+  ) {
+    const leftValue =
+      fieldType === 'date'
+        ? this.datasetDateTime(left)
+        : this.datasetNumber(left);
+    const rightValue =
+      fieldType === 'date'
+        ? this.datasetDateTime(right)
+        : this.datasetNumber(right);
+    if (leftValue === null || rightValue === null) return false;
+    if (operator === 'gt') return leftValue > rightValue;
+    if (operator === 'gte') return leftValue >= rightValue;
+    if (operator === 'lt') return leftValue < rightValue;
+    if (operator === 'lte') return leftValue <= rightValue;
+    return false;
+  }
+
+  private isDatasetEmptyValue(value: unknown) {
+    return (
+      value === null ||
+      value === undefined ||
+      value === '' ||
+      (Array.isArray(value) && value.length === 0)
+    );
+  }
+
+  private datasetFilterText(value: unknown) {
+    const scalar = this.unwrapDatasetFilterScalar(value);
+    return String(scalar ?? '').trim().toLowerCase();
+  }
+
+  private unwrapDatasetFilterScalar(value: unknown): unknown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return value;
+    }
+    const record = value as Record<string, unknown>;
+    return (
+      record.code ??
+      record.value ??
+      record.key ??
+      record.id ??
+      record.label ??
+      JSON.stringify(value)
+    );
+  }
+
+  private datasetDateKey(value: unknown) {
+    const time = this.datasetDateTime(value);
+    if (time === null) return '';
+    return new Date(time).toISOString().slice(0, 10);
+  }
+
+  private datasetDateTime(value: unknown) {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = this.parseDateValue(value);
+    if (!parsed) return null;
+    const time = parsed.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+
+  private parseDateValue(value: unknown) {
+    if (value === null || value === undefined || value === '') return null;
+    if (value instanceof Date) {
+      return Number.isFinite(value.getTime()) ? value : null;
+    }
+    const text = String(value).trim();
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) {
+      const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      return Number.isFinite(date.getTime()) ? date : null;
+    }
+    const vn = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (vn) {
+      const date = new Date(Number(vn[3]), Number(vn[2]) - 1, Number(vn[1]));
+      return Number.isFinite(date.getTime()) ? date : null;
+    }
+    const parsed = new Date(text);
+    const time = parsed.getTime();
+    return Number.isFinite(time) ? parsed : null;
+  }
+
+  private filterDatasetRowsByTime(
+    rows: Array<Record<string, unknown>>,
+    time: AnalyticsTimeDto,
+  ) {
+    const range = this.resolveTimeRange(
+      time.preset,
+      time.customFrom,
+      time.customTo,
+    );
+    const from = this.parseDateValue(range.from);
+    const to = this.parseDateValue(range.to);
+    if (!from || !to) return rows;
+    const fromTime = this.startOfDay(from).getTime();
+    const toTime = this.endOfDay(to).getTime();
+    return rows.filter((row) => {
+      return this.isDateInRange(row[time.dateField], { fromTime, toTime });
+    });
+  }
+
+  private isDateInRange(
+    value: unknown,
+    range: { fromTime: number; toTime: number },
+  ) {
+    const date = this.parseDateValue(value);
+    if (!date) return false;
+    const time = date.getTime();
+    return time >= range.fromTime && time <= range.toTime;
+  }
+
+  private resolveTimeRange(
+    preset: AnalyticsTimeDto['preset'],
+    customFrom?: string,
+    customTo?: string,
+    now = new Date(),
+  ): TimeRange {
+    // TODO: move to a shared Asia/Ho_Chi_Minh timezone helper if the project adds one.
+    const today = this.startOfDay(now);
+    if (preset === 'custom') {
+      if (!customFrom || !customTo) {
+        throw new BadRequestException('customFrom/customTo là bắt buộc');
+      }
+      const from = this.parseDateValue(customFrom);
+      const to = this.parseDateValue(customTo);
+      if (!from || !to) {
+        throw new BadRequestException('customFrom/customTo không hợp lệ');
+      }
+      if (this.startOfDay(from).getTime() > this.startOfDay(to).getTime()) {
+        throw new BadRequestException('customFrom phải nhỏ hơn hoặc bằng customTo');
+      }
+      return { from: this.dateKey(from), to: this.dateKey(to) };
+    }
+    if (preset === 'today') {
+      return { from: this.dateKey(today), to: this.dateKey(today) };
+    }
+    if (preset === 'this_week') {
+      const day = today.getDay();
+      const mondayOffset = day === 0 ? -6 : 1 - day;
+      return {
+        from: this.dateKey(this.addDays(today, mondayOffset)),
+        to: this.dateKey(today),
+      };
+    }
+    if (preset === 'this_month') {
+      return {
+        from: this.dateKey(new Date(today.getFullYear(), today.getMonth(), 1)),
+        to: this.dateKey(today),
+      };
+    }
+    if (preset === 'this_quarter') {
+      const quarterMonth = Math.floor(today.getMonth() / 3) * 3;
+      return {
+        from: this.dateKey(new Date(today.getFullYear(), quarterMonth, 1)),
+        to: this.dateKey(today),
+      };
+    }
+    if (preset === 'this_year') {
+      return {
+        from: this.dateKey(new Date(today.getFullYear(), 0, 1)),
+        to: this.dateKey(today),
+      };
+    }
+    const rollingDays = {
+      last_7_days: 6,
+      last_30_days: 29,
+      last_90_days: 89,
+    }[preset];
+    if (rollingDays !== undefined) {
+      return {
+        from: this.dateKey(this.addDays(today, -rollingDays)),
+        to: this.dateKey(today),
+      };
+    }
+    throw new BadRequestException('time preset không hợp lệ');
+  }
+
+  private resolvePreviousTimeRange(
+    currentRange: TimeRange,
+    compare: NonNullable<AnalyticsTimeDto['compare']>,
+  ) {
+    const from = this.parseDateValue(currentRange.from);
+    const to = this.parseDateValue(currentRange.to);
+    if (!from || !to) {
+      throw new BadRequestException('Khoảng thời gian không hợp lệ');
+    }
+    if (compare === 'same_period_last_year') {
+      return {
+        from: this.dateKey(new Date(from.getFullYear() - 1, from.getMonth(), from.getDate())),
+        to: this.dateKey(new Date(to.getFullYear() - 1, to.getMonth(), to.getDate())),
+      };
+    }
+    const days = Math.max(
+      1,
+      Math.round((this.startOfDay(to).getTime() - this.startOfDay(from).getTime()) / 86400000) + 1,
+    );
+    const previousTo = this.addDays(this.startOfDay(from), -1);
+    const previousFrom = this.addDays(previousTo, -(days - 1));
+    return {
+      from: this.dateKey(previousFrom),
+      to: this.dateKey(previousTo),
+    };
+  }
+
+  private startOfDay(date: Date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+
+  private endOfDay(date: Date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  }
+
+  private addDays(date: Date, days: number) {
+    const next = new Date(date);
+    next.setDate(next.getDate() + days);
+    return next;
+  }
+
+  private dateKey(date: Date) {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private aggregateDatasetValues(
@@ -747,6 +1417,138 @@ export class AnalyticsService {
     });
   }
 
+  private readHavingFiltersFromConfig(
+    dataSourceConfig: Record<string, unknown>,
+  ): AnalyticsHavingFilterDto[] {
+    const topLevel = this.readHavingFilters(dataSourceConfig.having);
+    if (topLevel.length > 0) return topLevel;
+    const advancedQuery =
+      dataSourceConfig.advancedQuery &&
+      typeof dataSourceConfig.advancedQuery === 'object'
+        ? (dataSourceConfig.advancedQuery as Record<string, unknown>)
+        : null;
+    return this.readHavingFilters(advancedQuery?.having);
+  }
+
+  private readFormulaFromConfig(
+    dataSourceConfig: Record<string, unknown>,
+  ): AnalyticsFormulaDto | undefined {
+    const topLevel = this.readFormula(dataSourceConfig.formula);
+    if (topLevel) return topLevel;
+    const advancedQuery =
+      dataSourceConfig.advancedQuery &&
+      typeof dataSourceConfig.advancedQuery === 'object'
+        ? (dataSourceConfig.advancedQuery as Record<string, unknown>)
+        : null;
+    return this.readFormula(advancedQuery?.formula);
+  }
+
+  private readTimeFromConfig(
+    dataSourceConfig: Record<string, unknown>,
+  ): AnalyticsTimeDto | undefined {
+    return this.normalizeTimeInput(dataSourceConfig.time);
+  }
+
+  private normalizeTimeInput(value: unknown): AnalyticsTimeDto | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+    const config = value as Record<string, unknown>;
+    if (config.enabled !== true) return undefined;
+    const dateField = this.readConfigString(config.dateField, 'time.dateField');
+    if (!dateField) {
+      throw new BadRequestException('time.dateField là bắt buộc');
+    }
+    const preset = this.readConfigString(config.preset, 'time.preset') ?? 'this_month';
+    if (
+      ![
+        'today',
+        'this_week',
+        'this_month',
+        'this_quarter',
+        'this_year',
+        'last_7_days',
+        'last_30_days',
+        'last_90_days',
+        'custom',
+      ].includes(preset)
+    ) {
+      throw new BadRequestException('time.preset không hợp lệ');
+    }
+    const compare =
+      this.readConfigString(config.compare, 'time.compare') ?? 'none';
+    if (
+      !['none', 'previous_period', 'same_period_last_year'].includes(compare)
+    ) {
+      throw new BadRequestException('time.compare không hợp lệ');
+    }
+    return {
+      enabled: true,
+      dateField,
+      preset: preset as AnalyticsTimeDto['preset'],
+      customFrom: this.readConfigString(config.customFrom, 'time.customFrom'),
+      customTo: this.readConfigString(config.customTo, 'time.customTo'),
+      compare: compare as AnalyticsTimeDto['compare'],
+    };
+  }
+
+  private readFormula(value: unknown): AnalyticsFormulaDto | undefined {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return undefined;
+    }
+    const config = value as Record<string, unknown>;
+    if (config.enabled !== true) return undefined;
+    const expression = this.readConfigString(
+      config.expression,
+      'formula.expression',
+    );
+    const label = this.readConfigString(config.label, 'formula.label');
+    if (!expression || !label) {
+      throw new BadRequestException('Formula cần label và expression');
+    }
+    const fields = Array.isArray(config.fields)
+      ? config.fields.filter((field): field is string => typeof field === 'string')
+      : [];
+    return {
+      enabled: true,
+      label,
+      unit: this.readConfigString(config.unit, 'formula.unit'),
+      expression,
+      fields,
+    };
+  }
+
+  private readHavingFilters(value: unknown): AnalyticsHavingFilterDto[] {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const config = value as Record<string, unknown>;
+    if (config.combinator !== 'and' || !Array.isArray(config.rules)) return [];
+    return config.rules.map((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new BadRequestException('Having filter không hợp lệ');
+      }
+      const rule = item as Record<string, unknown>;
+      const value = Number(rule.value);
+      if (!Number.isFinite(value)) {
+        throw new BadRequestException('Having filter value phải là số');
+      }
+      return {
+        field: this.readConfigString(rule.field, 'having.field') ?? '',
+        aggregation:
+          this.readConfigString(rule.aggregation, 'having.aggregation') ??
+          'sum',
+        operator:
+          rule.operator === 'gte' ||
+          rule.operator === 'lt' ||
+          rule.operator === 'lte' ||
+          rule.operator === 'eq' ||
+          rule.operator === 'neq'
+            ? rule.operator
+            : 'gt',
+        value,
+      };
+    });
+  }
+
   private readViewSorts(
     value: unknown,
   ): Array<{ field: string; direction: 'asc' | 'desc' }> {
@@ -797,6 +1599,17 @@ export class AnalyticsService {
   private buildTextExtract(fieldCode: string): string {
     this.assertFieldCode(fieldCode);
     return `NULLIF(TRIM(f.properties->>'${fieldCode}'), '')`;
+  }
+
+  private buildDateExtract(fieldCode: string): string {
+    const textExtract = this.buildTextExtract(fieldCode);
+    return `(
+      CASE
+        WHEN ${textExtract} ~ '^\\d{4}-\\d{2}-\\d{2}' THEN LEFT(${textExtract}, 10)::date
+        WHEN ${textExtract} ~ '^\\d{1,2}/\\d{1,2}/\\d{4}$' THEN to_date(${textExtract}, 'DD/MM/YYYY')
+        ELSE NULL
+      END
+    )`;
   }
 
   private buildNumericExtract(fieldCode: string, field?: SchemaField): string {
@@ -867,6 +1680,70 @@ export class AnalyticsService {
       return `COALESCE(MAX(${numericExpr}), 0)`;
     }
     throw new BadRequestException('aggregation không hợp lệ');
+  }
+
+  private buildSqlHavingClause(
+    filters: AnalyticsHavingFilterDto[],
+    valueSql: string,
+    query: ResolvedAnalyticsQuery,
+    params: unknown[],
+    startParamIndex: number,
+  ) {
+    if (filters.length === 0) return { sql: '', nextParamIndex: startParamIndex };
+    let paramIndex = startParamIndex;
+    const parts = filters.map((filter) => {
+      this.assertCompatibleHavingFilter(filter, query);
+      const comparison = this.havingComparisonOperator(filter.operator);
+      params.push(this.normalizeHavingValue(filter));
+      const clause = `${valueSql} ${comparison} $${paramIndex}`;
+      paramIndex += 1;
+      return clause;
+    });
+    return {
+      sql: `HAVING ${parts.join(' AND ')}`,
+      nextParamIndex: paramIndex,
+    };
+  }
+
+  private assertCompatibleHavingFilter(
+    filter: AnalyticsHavingFilterDto,
+    query: Pick<ResolvedAnalyticsQuery, 'aggregation' | 'fieldCode'>,
+  ) {
+    if (filter.field !== query.fieldCode) {
+      throw new BadRequestException(
+        `Having field không khớp metricField: ${filter.field}`,
+      );
+    }
+    if (filter.aggregation !== query.aggregation) {
+      throw new BadRequestException(
+        `Having aggregation không khớp truy vấn: ${filter.aggregation}`,
+      );
+    }
+  }
+
+  private havingComparisonOperator(operator: string) {
+    const comparison = {
+      gt: '>',
+      gte: '>=',
+      lt: '<',
+      lte: '<=',
+      eq: '=',
+      neq: '<>',
+    }[operator];
+    if (!comparison) {
+      throw new BadRequestException(`Having operator không hợp lệ: ${operator}`);
+    }
+    return comparison;
+  }
+
+  private normalizeHavingValue(filter: AnalyticsHavingFilterDto) {
+    const value = Number(filter.value);
+    if (!Number.isFinite(value)) {
+      throw new BadRequestException(
+        `Having filter ${filter.field}: value phải là số`,
+      );
+    }
+    return value;
   }
 
   private normalizeFilterValue(field: SchemaField, value: unknown): string {
