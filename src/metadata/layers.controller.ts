@@ -37,13 +37,6 @@ export class LayersController {
       infer: true,
     });
     const layers = await this.metadataService.listLayers(tenantId);
-    const duongLayer = layers.find((layer) => layer.code === 'duong');
-    console.log('[duong-render-trace][backend:/layers]', {
-      tenantId,
-      found: Boolean(duongLayer),
-      layer: duongLayer,
-      layerCount: layers.length,
-    });
 
     return apiResponse(
       {

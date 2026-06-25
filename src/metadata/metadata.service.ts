@@ -60,6 +60,24 @@ export type LayerSummary = {
   sortOrder: number;
   style: ReturnType<typeof parseStoredStyleConfig>;
   endpoint: string;
+  fields?: Array<{
+    fieldId: string;
+    code: string;
+    label: string;
+    fieldType: string;
+    dataSchema: Record<string, unknown>;
+    uiSchema: Record<string, unknown>;
+    displaySchema: Record<string, unknown>;
+    sortOrder: number;
+    isActive: boolean;
+    dictionaryItems?: Array<{
+      value: string;
+      code: string;
+      label: string;
+      name: string;
+      sortOrder: number;
+    }>;
+  }>;
 };
 
 export type ImportSchemaFieldInput = {
@@ -134,7 +152,12 @@ export class MetadataService {
       where: { tenantId, isActive: true },
       order: { sortOrder: 'ASC', name: 'ASC' },
     });
-    return layers.map((layer) => this.toLayerSummary(layer));
+    return Promise.all(
+      layers.map(async (layer) => ({
+        ...this.toLayerSummary(layer),
+        fields: await this.getLayerSummaryFields(tenantId, layer),
+      })),
+    );
   }
 
   async listLayersAdmin(tenantId: string) {
@@ -1163,6 +1186,76 @@ export class MetadataService {
       style,
       endpoint: `/api/layers/${layer.id}/geojson`,
     };
+  }
+
+  private async getLayerSummaryFields(
+    tenantId: string,
+    layer: LayerEntity,
+  ): Promise<NonNullable<LayerSummary['fields']>> {
+    if (!layer.currentSchemaVersionId) return [];
+
+    const fields = await this.schemaFieldsRepository.find({
+      where: {
+        tenantId,
+        layerId: layer.id,
+        schemaVersionId: layer.currentSchemaVersionId,
+        isActive: true,
+      },
+      order: { sortOrder: 'ASC' },
+    });
+
+    return Promise.all(
+      fields.map(async (field) => {
+        const dictionaryItems = await this.getFieldDictionaryItems(
+          tenantId,
+          field,
+        );
+        return {
+          fieldId: field.fieldId,
+          code: field.code,
+          label: field.label,
+          fieldType: field.fieldType,
+          dataSchema: field.dataSchema ?? {},
+          uiSchema: field.uiSchema ?? {},
+          displaySchema: field.displaySchema ?? {},
+          sortOrder: field.sortOrder,
+          isActive: field.isActive,
+          ...(dictionaryItems.length ? { dictionaryItems } : {}),
+        };
+      }),
+    );
+  }
+
+  private async getFieldDictionaryItems(
+    tenantId: string,
+    field: SchemaFieldVersionEntity,
+  ) {
+    if (
+      !['category', 'multi_category', 'select', 'enum'].includes(
+        field.fieldType,
+      )
+    ) {
+      return [];
+    }
+    const dictionaryCode = resolveDictionaryCode(field.dataSchema ?? {});
+    if (!dictionaryCode) return [];
+
+    try {
+      const dictionary = await this.dictionariesService.getByCode(
+        tenantId,
+        dictionaryCode,
+        { includeItems: true },
+      );
+      return (dictionary.items ?? []).map((item) => ({
+        value: item.code,
+        code: item.code,
+        label: item.label,
+        name: item.label,
+        sortOrder: item.sortOrder,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   private toLayerDetail(
