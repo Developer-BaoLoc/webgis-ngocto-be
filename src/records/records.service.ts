@@ -531,17 +531,21 @@ export class RecordsService implements OnModuleInit {
     },
   ) {
     const layer = await this.metadataService.getLayerById(tenantId, layerId);
-    const traceDuong = layer.code === 'duong';
+    const traceDuong =
+      process.env.DEBUG_GEOJSON === 'true' && layer.code === 'duong';
     if (traceDuong) {
-      console.log('[duong-render-trace][backend:geojson:start]', {
-        tenantId,
-        layerId,
-        code: layer.code,
-        geometryKind: layer.geometryKind,
-        geometryType: layer.geometryType,
-        bbox: options.bbox ?? null,
-        includeUnlocated: options.includeUnlocated ?? false,
-      });
+      this.logger.debug(
+        JSON.stringify({
+          tenantId,
+          layerId,
+          code: layer.code,
+          geometryKind: layer.geometryKind,
+          geometryType: layer.geometryType,
+          bbox: options.bbox ?? null,
+          includeUnlocated: options.includeUnlocated ?? false,
+        }),
+        'duong-render-trace:geojson:start',
+      );
     }
     let schemaFields: Array<{
       code: string;
@@ -568,10 +572,13 @@ export class RecordsService implements OnModuleInit {
       (isLineGeometryKind(layer.geometryKind) &&
         schemaFields.some((field) => isLineFieldType(field.fieldType)));
     if (traceDuong) {
-      console.log('[duong-render-trace][backend:geojson:schema]', {
-        schemaFieldCount: schemaFields.length,
-        useGeocodedFallback,
-      });
+      this.logger.debug(
+        JSON.stringify({
+          schemaFieldCount: schemaFields.length,
+          useGeocodedFallback,
+        }),
+        'duong-render-trace:geojson:schema',
+      );
     }
 
     const params: unknown[] = [tenantId, layerId];
@@ -610,10 +617,13 @@ export class RecordsService implements OnModuleInit {
       params,
     );
     if (traceDuong) {
-      console.log('[duong-render-trace][backend:geojson:rows]', {
-        rowCount: rows.length,
-        spatialFilter: spatialFilter.trim() || null,
-      });
+      this.logger.debug(
+        JSON.stringify({
+          rowCount: rows.length,
+          spatialFilter: spatialFilter.trim() || null,
+        }),
+        'duong-render-trace:geojson:rows',
+      );
     }
 
     const features = await Promise.all(
@@ -718,15 +728,18 @@ export class RecordsService implements OnModuleInit {
       });
     }
     if (traceDuong) {
-      console.log('[duong-render-trace][backend:geojson:return]', {
-        featureCount: result.length,
-        firstGeometryType:
-          result[0]?.geometry &&
-          typeof result[0].geometry === 'object' &&
-          'type' in result[0].geometry
-            ? (result[0].geometry as { type?: unknown }).type
-            : null,
-      });
+      this.logger.debug(
+        JSON.stringify({
+          featureCount: result.length,
+          firstGeometryType:
+            result[0]?.geometry &&
+            typeof result[0].geometry === 'object' &&
+            'type' in result[0].geometry
+              ? (result[0].geometry as { type?: unknown }).type
+              : null,
+        }),
+        'duong-render-trace:geojson:return',
+      );
     }
 
     return {

@@ -117,6 +117,7 @@ export class LayerImportService {
       layerName: layer.name,
       schemaVersionId: schema.schemaVersionId,
       fields: schema.fields,
+      geometryType: layer.geometryKind,
       dictionaryLabels,
     });
 
@@ -596,9 +597,9 @@ export class LayerImportService {
       layerCode: context.layer.code,
       layerName: context.layer.name,
       schemaVersionId: context.schema.schemaVersionId,
-      headerRow: 2,
-      fieldCodeRow: 3,
-      dataStartRow: 4,
+      headerRow: 1,
+      fieldCodeRow: null,
+      dataStartRow: 2,
       columns: buildImportColumns(context.schema.fields),
     };
   }

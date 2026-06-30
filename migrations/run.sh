@@ -13,6 +13,17 @@ fi
 
 DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5435/gis_ngocto}"
 
+mask_database_url() {
+  local url="$1"
+  if [[ "$url" =~ ^([^:]+)://([^:@/]+):([^@/]+)@(.+)$ ]]; then
+    printf "%s://%s:****@%s" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[4]}"
+  elif [[ "$url" =~ ^([^:]+)://([^@/]+)@(.+)$ ]]; then
+    printf "%s://****@%s" "${BASH_REMATCH[1]}" "${BASH_REMATCH[3]}"
+  else
+    printf "<database-url-set>"
+  fi
+}
+
 FILES=(
   001_foundation.sql
   002_metadata.sql
@@ -78,7 +89,7 @@ bootstrap_existing_database() {
   done
 }
 
-echo "Running migrations against: $DATABASE_URL"
+echo "Running migrations against: $(mask_database_url "$DATABASE_URL")"
 
 ensure_migrations_table
 bootstrap_existing_database

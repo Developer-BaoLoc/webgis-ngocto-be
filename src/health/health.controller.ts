@@ -17,11 +17,12 @@ export class HealthController {
   @Get()
   getRoot(@RequestId() requestId?: string) {
     const ward = this.configService.get('ward', { infer: true });
+    const project = this.configService.get('project', { infer: true });
 
     return apiResponse(
       {
         status: 'ok',
-        service: 'GIS Ngọc Tố API',
+        service: project.apiDisplayName,
         ward: `${ward.name}, ${ward.district}, ${ward.province}`,
         docs: '/api/layers',
       },

@@ -29,11 +29,12 @@ export class GisLayersService {
 
   getCatalog() {
     const ward = this.configService.get('ward', { infer: true });
+    const project = this.configService.get('project', { infer: true });
 
     return {
       project: {
-        name: 'GIS Ngọc Tố',
-        description: 'Hệ thống thông tin địa lý xã Ngọc Tố, Cần Thơ',
+        name: project.displayName,
+        description: project.description,
         ward: ward.name,
         district: ward.district,
         province: ward.province,

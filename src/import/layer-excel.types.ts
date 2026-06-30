@@ -15,7 +15,7 @@ export type LayerExcelMeta = {
   layerName: string;
   schemaVersionId: string;
   headerRow: number;
-  fieldCodeRow: number;
+  fieldCodeRow: number | null;
   dataStartRow: number;
   columns: LayerExcelFieldColumn[];
 };

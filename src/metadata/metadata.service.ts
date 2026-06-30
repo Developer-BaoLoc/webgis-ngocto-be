@@ -110,11 +110,12 @@ export class MetadataService {
 
   getProjectInfo() {
     const ward = this.configService.get('ward', { infer: true });
+    const project = this.configService.get('project', { infer: true });
     const mapView = this.wardBoundaryService.getMapView();
 
     return {
-      name: 'GIS Ngọc Tố',
-      description: 'Hệ thống thông tin địa lý xã Ngọc Tố, Cần Thơ',
+      name: project.displayName,
+      description: project.description,
       ward: ward.name,
       district: ward.district,
       province: ward.province,
